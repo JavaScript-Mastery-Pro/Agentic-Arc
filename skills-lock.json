@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "skills": {
+    "liveblocks-best-practices": {
+      "source": "liveblocks/skills",
+      "sourceType": "github",
+      "computedHash": "a9b8f1727f4d36c1d1d4488b8ad7355dcd456dea36f2cf18a5bf541897494d52"
+    },
+    "prisma-client-api": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "computedHash": "0434410e48fb796bbdc3ad0050654bfc9cf72c89b30dbad098ee5c9f655b7f85"
+    },
+    "prisma-database-setup": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "computedHash": "46d2dc2f9c968722376bbb6a1a1389c82bd7cceb5973ac1486c54890514b8959"
+    },
+    "prisma-driver-adapter-implementation": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "computedHash": "2e00b0d05f0da23796f6d44684e19219b74cf993f8a2df6e5b044812f375bbc6"
+    },
+    "prisma-postgres": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "computedHash": "d090d1206fb6a2dd9f7b9f658d851ccd653132512c53c6e0a164110d9ee80005"
+    },
+    "prisma-upgrade-v7": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "computedHash": "2e4d54a4c7a0fc2476e81686718a765f5eb2cacfb2fb0822f3109c76bf4a9bb0"
+    },
+    "yjs-best-practices": {
+      "source": "liveblocks/skills",
+      "sourceType": "github",
+      "computedHash": "65b5da44c2fa94b30f96fdb4ecc046a40f19fcd84995ccdfafe6a15438d415f2"
+    }
+  }
+}

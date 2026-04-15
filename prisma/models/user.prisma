@@ -1,0 +1,2 @@
+// Clerk is the source of truth for identity.
+// Add a local user/profile model later only if app-specific user data is needed.

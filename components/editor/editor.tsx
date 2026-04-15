@@ -1,10 +1,15 @@
 "use client";
 
-import { Cursors, useLiveblocksFlow } from "@liveblocks/react-flow";
+import {
+  Cursors,
+  useLiveblocksFlow,
+  type CursorsCursorProps,
+} from "@liveblocks/react-flow";
 import {
   ClientSideSuspense,
   LiveblocksProvider,
   RoomProvider,
+  useOther,
   useOthersMapped,
   useSelf,
 } from "@liveblocks/react/suspense";
@@ -25,20 +30,35 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import {
+  Circle,
+  Diamond,
   FolderKanban,
   Link2,
+  Loader2,
   Minus,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  RectangleHorizontal,
   RefreshCw,
+  Save,
+  Sparkles,
   X,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { startTransition, useMemo, useState } from "react";
+import {
+  type DragEvent,
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { EditorErrorBoundary } from "@/components/editor/error-boundary";
+import { AiChatSidebar } from "@/components/editor/ai-chat-sidebar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -70,7 +90,10 @@ interface PresenceUserInfo {
 interface CanvasNodeData extends Record<string, unknown> {
   label: string;
   color: string;
+  shape?: NodeShape;
 }
+
+type NodeShape = "rectangle" | "diamond" | "circle" | "pill";
 
 type CanvasNode = Node<CanvasNodeData, "canvasNode">;
 type CanvasEdge = Edge;
@@ -105,6 +128,61 @@ const edgeMarker = {
   width: 14,
   height: 14,
 };
+
+// ── Shape panel items ──────────────────────────────────────────────
+interface ShapePanelItem {
+  shape: NodeShape;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  defaultWidth: number;
+  defaultHeight: number;
+}
+
+function PillIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round">
+      <rect x="2" y="8" width="20" height="8" rx="4" />
+    </svg>
+  );
+}
+
+const shapePanelItems: ShapePanelItem[] = [
+  {
+    shape: "rectangle",
+    label: "Rectangle",
+    icon: RectangleHorizontal,
+    defaultWidth: 260,
+    defaultHeight: 120,
+  },
+  {
+    shape: "diamond",
+    label: "Diamond",
+    icon: Diamond,
+    defaultWidth: 200,
+    defaultHeight: 200,
+  },
+  {
+    shape: "circle",
+    label: "Circle",
+    icon: Circle,
+    defaultWidth: 160,
+    defaultHeight: 160,
+  },
+  {
+    shape: "pill",
+    label: "Pill",
+    icon: PillIcon,
+    defaultWidth: 260,
+    defaultHeight: 80,
+  },
+];
 
 const initialNodes: CanvasNode[] = [
   {
@@ -246,6 +324,41 @@ function CanvasPresence() {
   );
 }
 
+function CursorWithName({ connectionId }: CursorsCursorProps) {
+  const info = useOther(connectionId, (user) => user.info);
+  const thinking = useOther(connectionId, (user) => user.presence?.thinking);
+
+  return (
+    <>
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 20 20"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="M0.583374 0.291748L19.4167 8.45841L10.2917 12.1251L6.62504 19.7084L0.583374 0.291748Z"
+          fill={info.color}
+        />
+      </svg>
+      <span
+        className="absolute left-4 top-4 flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium text-white shadow-md"
+        style={{ backgroundColor: info.color }}>
+        {info.name}
+        {thinking ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+      </span>
+    </>
+  );
+}
+
+// ── Shape-specific wrapper styles ──────────────────────────────────
+const shapeClasses: Record<NodeShape, string> = {
+  rectangle: "rounded-2xl",
+  diamond: "[clip-path:polygon(50%_0%,100%_50%,50%_100%,0%_50%)]",
+  circle: "rounded-full",
+  pill: "rounded-full",
+};
+
 // Connection handle shared style — white dot, visible on any node color
 const handleClass =
   "!h-3 !w-3 !rounded-full !border-2 !border-zinc-900 !bg-white !transition-opacity !duration-150 !opacity-0 group-hover/node:!opacity-100";
@@ -258,12 +371,14 @@ function CanvasNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
     typeof data.label === "string" && data.label.trim().length > 0;
   const nodeColor =
     typeof data.color === "string" ? data.color : defaultNodeColor;
+  const nodeShape: NodeShape = data.shape ?? "rectangle";
 
   return (
     <div
       className={cn(
         // group/node lets handles fade in on any hover within the node
-        "group/node relative flex h-full w-full min-h-[100px] min-w-[140px] items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-shadow duration-150",
+        "group/node relative flex h-full w-full min-h-[80px] min-w-[80px] items-center justify-center border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-shadow duration-150",
+        shapeClasses[nodeShape],
         selected &&
           "border-white/50 shadow-[0_8px_32px_rgba(255,255,255,0.10)]",
       )}
@@ -292,7 +407,7 @@ function CanvasNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
       {/* ── Resize handles (visible only when selected) ──────────────── */}
       <NodeResizer
         isVisible={selected}
-        minWidth={140}
+        minWidth={80}
         minHeight={80}
         color="#67e8f9"
         lineClassName="!border-white/30"
@@ -355,6 +470,39 @@ function CanvasNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Floating node panel  ───────────────────────────────────────────
+function NodePanel() {
+  function handleDragStart(event: DragEvent, item: ShapePanelItem) {
+    const payload = JSON.stringify({
+      shape: item.shape,
+      defaultWidth: item.defaultWidth,
+      defaultHeight: item.defaultHeight,
+    });
+
+    event.dataTransfer.setData("application/reactflow", payload);
+    event.dataTransfer.effectAllowed = "move";
+  }
+
+  return (
+    <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/90 p-1.5 shadow-lg shadow-black/30 backdrop-blur">
+      {shapePanelItems.map((item) => {
+        const Icon = item.icon;
+
+        return (
+          <div
+            key={item.shape}
+            draggable
+            onDragStart={(event) => handleDragStart(event, item)}
+            title={item.label}
+            className="flex h-10 w-10 cursor-grab items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 active:cursor-grabbing">
+            <Icon className="h-5 w-5" />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -439,16 +587,25 @@ function ProjectSidebar({
   );
 }
 
+const AUTOSAVE_DELAY_MS = 3000;
+
 function EditorWorkspace({ roomId, projects }: EditorProps) {
   const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
+    "idle",
+  );
   const [flow, setFlow] = useState<ReactFlowInstance<
     CanvasNode,
     CanvasEdge
   > | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nodeIdCounter = useRef(0);
 
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, onDelete } =
     useLiveblocksFlow<CanvasNode, CanvasEdge>({
@@ -457,8 +614,8 @@ function EditorWorkspace({ roomId, projects }: EditorProps) {
       edges: { initial: initialEdges },
     });
 
-  const canvasNodes = nodes ?? [];
-  const canvasEdges = edges ?? [];
+  const canvasNodes = useMemo(() => nodes ?? [], [nodes]);
+  const canvasEdges = useMemo(() => edges ?? [], [edges]);
 
   const nodeTypes = useMemo(
     () => ({
@@ -466,6 +623,47 @@ function EditorWorkspace({ roomId, projects }: EditorProps) {
     }),
     [],
   );
+
+  // ── Persist canvas to disk via API ────────────────────────────────
+  const saveCanvas = useCallback(async () => {
+    if (!canvasNodes.length && !canvasEdges.length) return;
+
+    setSaveStatus("saving");
+
+    try {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(roomId)}/canvas`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nodes: canvasNodes, edges: canvasEdges }),
+        },
+      );
+
+      if (response.ok) {
+        setSaveStatus("saved");
+        window.setTimeout(() => setSaveStatus("idle"), 2000);
+      } else {
+        console.error("Failed to save canvas", await response.text());
+        setSaveStatus("idle");
+      }
+    } catch (error) {
+      console.error("Failed to save canvas", error);
+      setSaveStatus("idle");
+    }
+  }, [roomId, canvasNodes, canvasEdges]);
+
+  // Auto-save debounce: schedule a save whenever nodes/edges change
+  useEffect(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveCanvas();
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [canvasNodes, canvasEdges, saveCanvas]);
 
   async function handleCopyLink() {
     try {
@@ -477,19 +675,82 @@ function EditorWorkspace({ roomId, projects }: EditorProps) {
     }
   }
 
-  function handleCreateProject() {
+  async function handleCreateProject() {
     const nextRoomId = slugifyProjectName(projectName);
-    setIsCreateDialogOpen(false);
-    setProjectName("");
-    setIsSidebarOpen(false);
+    const name = projectName.trim();
 
-    startTransition(() => {
-      router.push(`/editor/${encodeURIComponent(nextRoomId)}`);
-    });
+    if (!name) return;
+
+    setIsCreating(true);
+
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, roomId: nextRoomId }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to create project", await response.text());
+        return;
+      }
+
+      setIsCreateDialogOpen(false);
+      setProjectName("");
+      setIsSidebarOpen(false);
+
+      startTransition(() => {
+        router.push(`/editor/${encodeURIComponent(nextRoomId)}`);
+        router.refresh();
+      });
+    } catch (error) {
+      console.error("Failed to create project", error);
+    } finally {
+      setIsCreating(false);
+    }
   }
 
   function handleResetView() {
     flow?.fitView({ duration: 300, padding: 0.2 });
+  }
+
+  function handleDragOver(event: DragEvent) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  function handleDrop(event: DragEvent) {
+    event.preventDefault();
+
+    const raw = event.dataTransfer.getData("application/reactflow");
+    if (!raw || !flow) return;
+
+    try {
+      const { shape, defaultWidth, defaultHeight } = JSON.parse(raw) as {
+        shape: NodeShape;
+        defaultWidth: number;
+        defaultHeight: number;
+      };
+
+      const position = flow.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      nodeIdCounter.current += 1;
+      const newNode: CanvasNode = {
+        id: `${shape}-${Date.now()}-${nodeIdCounter.current}`,
+        type: "canvasNode",
+        position,
+        data: { label: "", color: defaultNodeColor, shape },
+        width: defaultWidth,
+        height: defaultHeight,
+      };
+
+      flow.addNodes(newNode);
+    } catch {
+      // ignore malformed drag data
+    }
   }
 
   return (
@@ -520,14 +781,21 @@ function EditorWorkspace({ roomId, projects }: EditorProps) {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setIsCreateDialogOpen(false)}>
+              onClick={() => setIsCreateDialogOpen(false)}
+              disabled={isCreating}>
               Cancel
             </Button>
             <Button
               type="button"
               onClick={handleCreateProject}
-              disabled={!projectName.trim()}>
-              Create project
+              disabled={!projectName.trim() || isCreating}>
+              {isCreating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Creating…
+                </>
+              ) : (
+                "Create project"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -579,6 +847,24 @@ function EditorWorkspace({ roomId, projects }: EditorProps) {
               type="button"
               variant="outline"
               size="sm"
+              onClick={saveCanvas}
+              disabled={saveStatus === "saving"}
+              className="rounded-lg">
+              {saveStatus === "saving" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              {saveStatus === "saved"
+                ? "Saved"
+                : saveStatus === "saving"
+                  ? "Saving…"
+                  : "Save"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               onClick={handleResetView}
               className="rounded-lg">
               <RefreshCw className="h-3.5 w-3.5" />
@@ -592,11 +878,30 @@ function EditorWorkspace({ roomId, projects }: EditorProps) {
               <Link2 className="h-3.5 w-3.5" />
               {isCopied ? "Copied" : "Share"}
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setIsAiChatOpen((v) => !v)}
+              className={cn(
+                "rounded-lg",
+                isAiChatOpen && "bg-indigo-600 hover:bg-indigo-500",
+              )}>
+              <Sparkles className="h-3.5 w-3.5" />
+              AI
+            </Button>
           </div>
         </header>
 
         <div className="relative min-h-0 flex-1 bg-zinc-950">
           <CanvasPresence />
+
+          <AiChatSidebar
+            roomId={roomId}
+            isOpen={isAiChatOpen}
+            onClose={() => setIsAiChatOpen(false)}
+            nodes={canvasNodes as unknown as Record<string, unknown>[]}
+            edges={canvasEdges as unknown as Record<string, unknown>[]}
+          />
 
           <ReactFlow<CanvasNode, CanvasEdge>
             fitView
@@ -611,6 +916,8 @@ function EditorWorkspace({ roomId, projects }: EditorProps) {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onDelete={onDelete}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
             defaultEdgeOptions={{
               type: "smoothstep",
               style: edgeStyle,
@@ -636,10 +943,12 @@ function EditorWorkspace({ roomId, projects }: EditorProps) {
                 return color;
               }}
             />
-            <Cursors />
+            <Cursors components={{ Cursor: CursorWithName }} />
           </ReactFlow>
 
-          <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/90 p-1.5 shadow-lg shadow-black/30">
+          <NodePanel />
+
+          <div className="absolute bottom-16 left-4 z-20 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/90 p-1.5 shadow-lg shadow-black/30">
             <Button
               type="button"
               variant="ghost"

@@ -2,25 +2,12 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { Editor } from "@/components/editor/editor";
+import prisma from "@/lib/prisma";
 
 interface EditorPageProps {
   params: Promise<{
     roomId: string;
   }>;
-}
-
-const starterProjects = [
-  { id: "system-blueprint", name: "System Blueprint" },
-  { id: "payments-architecture", name: "Payments Architecture" },
-  { id: "agent-runtime", name: "Agent Runtime" },
-];
-
-function formatRoomName(roomId: string) {
-  return roomId
-    .split("-")
-    .filter(Boolean)
-    .map((segment) => segment[0]?.toUpperCase() + segment.slice(1))
-    .join(" ");
 }
 
 export default async function EditorPage({ params }: EditorPageProps) {
@@ -32,9 +19,12 @@ export default async function EditorPage({ params }: EditorPageProps) {
 
   const { roomId: rawRoomId } = await params;
   const roomId = decodeURIComponent(rawRoomId);
-  const projects = starterProjects.some((project) => project.id === roomId)
-    ? starterProjects
-    : [{ id: roomId, name: formatRoomName(roomId) }, ...starterProjects];
+
+  const projects = await prisma.project.findMany({
+    where: { ownerClerkId: userId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, name: true },
+  });
 
   return <Editor roomId={roomId} projects={projects} />;
 }

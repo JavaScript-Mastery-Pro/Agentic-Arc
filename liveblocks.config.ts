@@ -2,6 +2,7 @@ declare global {
   interface Liveblocks {
     Presence: {
       cursor: { x: number; y: number } | null;
+      thinking?: boolean;
     };
     UserMeta: {
       id: string;

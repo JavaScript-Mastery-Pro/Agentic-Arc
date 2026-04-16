@@ -1,6 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
+import { currentUser, auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+import { normalizeEmail } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
 
 export async function GET() {
@@ -10,13 +11,36 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const projects = await prisma.project.findMany({
-    where: { ownerClerkId: userId },
+  const user = await currentUser();
+  const email = user?.primaryEmailAddress?.emailAddress
+    ? normalizeEmail(user.primaryEmailAddress.emailAddress)
+    : null;
+
+  const myProjects = await prisma.project.findMany({
+    where: { creatorId: userId },
     orderBy: { createdAt: "desc" },
     select: { id: true, name: true, status: true, createdAt: true },
   });
 
-  return NextResponse.json(projects);
+  const sharedProjects = email
+    ? await prisma.project.findMany({
+        where: {
+          creatorId: { not: userId },
+          collaborators: {
+            some: {
+              collaboratorEmail: {
+                equals: email,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, name: true, status: true, createdAt: true },
+      })
+    : [];
+
+  return NextResponse.json({ myProjects, sharedProjects });
 }
 
 interface CreateProjectBody {
@@ -44,7 +68,7 @@ export async function POST(request: Request) {
 
   // Prevent duplicate projects with the same roomId for this user
   const existing = await prisma.project.findFirst({
-    where: { id: roomId, ownerClerkId: userId },
+    where: { id: roomId, creatorId: userId },
   });
 
   if (existing) {
@@ -54,7 +78,7 @@ export async function POST(request: Request) {
   const project = await prisma.project.create({
     data: {
       id: roomId,
-      ownerClerkId: userId,
+      creatorId: userId,
       name,
     },
   });

@@ -4,24 +4,49 @@ import { useRealtimeRun } from "@trigger.dev/react-hooks";
 import {
   Bot,
   Download,
+  Eye,
   FileText,
   Loader2,
   Send,
   Sparkles,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
 import type { designAgent } from "@/trigger/design-agent";
+import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
 
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+}
+
+interface StoredSpec {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
 }
 
 interface AiChatSidebarProps {
@@ -32,7 +57,27 @@ interface AiChatSidebarProps {
   edges: Record<string, unknown>[];
 }
 
-// ── Design run tracker ─────────────────────────────────────────────
+function formatGeneratedTime(isoTime: string) {
+  return new Date(isoTime).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function getSnippet(markdown: string) {
+  const compact = markdown
+    .replace(/[\n\r\t]+/g, " ")
+    .replace(/[#*_`>-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return compact.length > 60 ? `${compact.slice(0, 60)}...` : compact;
+}
+
+function getDownloadUrl(roomId: string, specId: string) {
+  return `/api/projects/${roomId}/specs/${specId}/download`;
+}
+
 function DesignRunTracker({
   runId,
   accessToken,
@@ -75,12 +120,11 @@ function DesignRunTracker({
   return (
     <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
       <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
-      <span>AI is working on the canvas…</span>
+      <span>AI is working on the canvas...</span>
     </div>
   );
 }
 
-// ── Spec run tracker ────────────────────────────────────────────────
 function SpecRunTracker({
   runId,
   accessToken,
@@ -127,7 +171,7 @@ function SpecRunTracker({
   return (
     <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-zinc-300">{status ?? "Connecting…"}</span>
+        <span className="text-zinc-300">{status ?? "Connecting..."}</span>
         <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
       </div>
 
@@ -155,20 +199,22 @@ export function AiChatSidebar({
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ── Design agent state ───────────────────────────────────────────
   const [designRunId, setDesignRunId] = useState<string | null>(null);
   const [designAccessToken, setDesignAccessToken] = useState<string | null>(
     null,
   );
 
-  // ── Spec generation state ─────────────────────────────────────────
   const [specRunId, setSpecRunId] = useState<string | null>(null);
   const [specAccessToken, setSpecAccessToken] = useState<string | null>(null);
   const [isGeneratingSpec, setIsGeneratingSpec] = useState(false);
-  const [latestSpecId, setLatestSpecId] = useState<string | null>(null);
-  const [showSpecViewer, setShowSpecViewer] = useState(false);
-  const [specContent, setSpecContent] = useState<string | null>(null);
-  const [isLoadingSpec, setIsLoadingSpec] = useState(false);
+  const [specs, setSpecs] = useState<StoredSpec[]>([]);
+  const [activeSpecId, setActiveSpecId] = useState<string | null>(null);
+  const [isSpecDialogOpen, setIsSpecDialogOpen] = useState(false);
+
+  const activeSpec = useMemo(
+    () => specs.find((spec) => spec.id === activeSpecId) ?? null,
+    [activeSpecId, specs],
+  );
 
   function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -183,6 +229,7 @@ export function AiChatSidebar({
     setDesignRunId(null);
     setDesignAccessToken(null);
     setIsLoading(false);
+
     const assistantMessage: ChatMessage = {
       id: `ai-${Date.now()}`,
       role: "assistant",
@@ -190,6 +237,7 @@ export function AiChatSidebar({
         ? "Done! I've updated the canvas based on your request."
         : "Something went wrong. Please try again.",
     };
+
     setMessages((prev) => [...prev, assistantMessage]);
     scrollToBottom();
   }, []);
@@ -200,8 +248,12 @@ export function AiChatSidebar({
       setSpecAccessToken(null);
       setIsGeneratingSpec(false);
 
-      if (specContent) {
-        // Save spec to disk via the API route, which writes the .md file
+      if (!specContent) return;
+
+      const generatedAt = new Date().toISOString();
+      let specId = `local-${Date.now()}`;
+
+      try {
         const res = await fetch(`/api/projects/${roomId}/spec`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -209,13 +261,25 @@ export function AiChatSidebar({
         });
 
         if (res.ok) {
-          const { specId } = (await res.json()) as { specId: string };
-          setLatestSpecId(specId);
+          const data = (await res.json()) as { specId: string };
+          specId = data.specId;
         }
-        setSpecContent(specContent);
+      } catch {
+        // keep local fallback id; user can still view content in current session
       }
+
+      const newSpec: StoredSpec = {
+        id: specId,
+        title: `Spec v${specs.length + 1}`,
+        content: specContent,
+        createdAt: generatedAt,
+      };
+
+      setSpecs((prev) => [newSpec, ...prev]);
+      setActiveSpecId(newSpec.id);
+      setIsSpecDialogOpen(true);
     },
-    [roomId],
+    [roomId, specs.length],
   );
 
   async function handleGenerateSpec() {
@@ -223,7 +287,6 @@ export function AiChatSidebar({
     setIsGeneratingSpec(true);
 
     try {
-      // 1. Trigger the spec generation task
       const triggerRes = await fetch("/api/ai/spec", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -245,7 +308,6 @@ export function AiChatSidebar({
 
       const { runId } = (await triggerRes.json()) as { runId: string };
 
-      // 2. Get a public access token for realtime subscription
       const tokenRes = await fetch("/api/ai/spec/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -268,25 +330,9 @@ export function AiChatSidebar({
     }
   }
 
-  async function handleViewSpec() {
-    setShowSpecViewer(true);
-    setIsLoadingSpec(true);
-
-    try {
-      const res = await fetch(`/api/ai/spec/${encodeURIComponent(roomId)}`);
-
-      if (res.ok) {
-        const data = (await res.json()) as { spec: string; specId: string };
-        setSpecContent(data.spec);
-        setLatestSpecId(data.specId);
-      } else {
-        setSpecContent(null);
-      }
-    } catch {
-      setSpecContent(null);
-    } finally {
-      setIsLoadingSpec(false);
-    }
+  function handleOpenSpec(spec: StoredSpec) {
+    setActiveSpecId(spec.id);
+    setIsSpecDialogOpen(true);
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -307,7 +353,6 @@ export function AiChatSidebar({
     scrollToBottom();
 
     try {
-      // 1. Trigger the design agent task (returns immediately)
       const triggerRes = await fetch("/api/ai/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -320,7 +365,6 @@ export function AiChatSidebar({
 
       const { runId } = (await triggerRes.json()) as { runId: string };
 
-      // 2. Get a public token for realtime subscription
       const tokenRes = await fetch("/api/ai/design/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -335,7 +379,6 @@ export function AiChatSidebar({
         publicToken: string;
       };
 
-      // 3. Subscribe — isLoading stays true until handleDesignComplete fires
       setDesignRunId(runId);
       setDesignAccessToken(publicToken);
       scrollToBottom();
@@ -354,210 +397,273 @@ export function AiChatSidebar({
   }
 
   return (
-    <aside
-      className={cn(
-        "absolute right-4 top-4 bottom-4 z-40 flex w-[min(22rem,calc(100vw-2rem))] flex-col rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-300",
-        isOpen
-          ? "translate-x-0 opacity-100"
-          : "pointer-events-none translate-x-[calc(100%+1.5rem)] opacity-0",
-      )}>
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/15">
-            <Sparkles className="h-4 w-4 text-indigo-400" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-zinc-100">AI Architect</p>
-            <p className="text-[11px] text-zinc-500">Design systems with AI</p>
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={onClose}
-          className="h-8 w-8 text-zinc-400 hover:text-zinc-100">
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {/* ── Messages ───────────────────────────────────────────────── */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900">
-              <Bot className="h-6 w-6 text-zinc-500" />
+    <>
+      <aside
+        className={cn(
+          "absolute right-4 top-4 bottom-4 z-40 flex w-[min(24rem,calc(100vw-2rem))] flex-col rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-300",
+          isOpen
+            ? "translate-x-0 opacity-100"
+            : "pointer-events-none translate-x-[calc(100%+1.5rem)] opacity-0",
+        )}>
+        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/15">
+              <Sparkles className="h-4 w-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-zinc-300">
-                AI System Designer
+              <p className="text-sm font-semibold text-zinc-100">
+                AI Workspace
               </p>
-              <p className="mt-1 text-xs leading-5 text-zinc-500">
-                Describe whatever system you want to design. The AI will place
-                nodes and connections on the canvas in real time.
+              <p className="text-[11px] text-zinc-500">
+                Architect and spec drafts
               </p>
-            </div>
-            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-              {[
-                "Design an e-commerce backend",
-                "Create a chat app architecture",
-                "Build a CI/CD pipeline",
-              ].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => setInput(suggestion)}
-                  className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200">
-                  {suggestion}
-                </button>
-              ))}
             </div>
           </div>
-        ) : (
-          messages.map((message) => (
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="h-8 w-8 text-zinc-400 hover:text-zinc-100">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <Tabs
+          defaultValue="architect"
+          className="flex min-h-0 flex-1 flex-col px-3 py-3">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="architect">AI Architect</TabsTrigger>
+            <TabsTrigger value="specs">Specs</TabsTrigger>
+          </TabsList>
+
+          <TabsContent
+            value="architect"
+            className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
             <div
-              key={message.id}
-              className={cn(
-                "flex",
-                message.role === "user" ? "justify-end" : "justify-start",
-              )}>
-              <div
-                className={cn(
-                  "max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed",
-                  message.role === "user"
-                    ? "bg-indigo-600 text-white"
-                    : "border border-zinc-800 bg-zinc-900 text-zinc-200",
-                )}>
-                {message.content}
-              </div>
-            </div>
-          ))
-        )}
-
-        {/* ── Design agent tracker ─────────────────────────────── */}
-        {designRunId && designAccessToken && (
-          <DesignRunTracker
-            runId={designRunId}
-            accessToken={designAccessToken}
-            onComplete={handleDesignComplete}
-          />
-        )}
-
-        {/* ── Spec generation tracker ──────────────────────────────── */}
-        {specRunId && specAccessToken && (
-          <SpecRunTracker
-            runId={specRunId}
-            accessToken={specAccessToken}
-            onComplete={handleSpecComplete}
-          />
-        )}
-      </div>
-
-      {/* ── Spec viewer overlay ────────────────────────────────────── */}
-      {showSpecViewer && (
-        <div className="absolute inset-0 z-50 flex flex-col rounded-2xl bg-zinc-950/98">
-          <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-indigo-400" />
-              <p className="text-sm font-semibold text-zinc-100">
-                Project Spec
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              {specContent && latestSpecId && (
-                <a
-                  href={`/api/projects/${roomId}/specs/${latestSpecId}/download`}
-                  download
-                  className="flex h-8 w-8 items-center justify-center rounded text-zinc-400 hover:text-zinc-100 transition">
-                  <Download className="h-4 w-4" />
-                </a>
+              ref={scrollRef}
+              className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-3">
+              {messages.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900">
+                    <Bot className="h-6 w-6 text-zinc-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-300">
+                      AI System Designer
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                      Describe whatever system you want to design. The AI will
+                      place nodes and connections on the canvas in real time.
+                    </p>
+                  </div>
+                  <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+                    {[
+                      "Design an e-commerce backend",
+                      "Create a chat app architecture",
+                      "Build a CI/CD pipeline",
+                    ].map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => setInput(suggestion)}
+                        className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200">
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "flex",
+                      message.role === "user" ? "justify-end" : "justify-start",
+                    )}>
+                    <div
+                      className={cn(
+                        "max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed",
+                        message.role === "user"
+                          ? "bg-indigo-600 text-white"
+                          : "border border-zinc-800 bg-zinc-900 text-zinc-200",
+                      )}>
+                      {message.content}
+                    </div>
+                  </div>
+                ))
               )}
+
+              {designRunId && designAccessToken && (
+                <DesignRunTracker
+                  runId={designRunId}
+                  accessToken={designAccessToken}
+                  onComplete={handleDesignComplete}
+                />
+              )}
+
+              {specRunId && specAccessToken && (
+                <SpecRunTracker
+                  runId={specRunId}
+                  accessToken={specAccessToken}
+                  onComplete={handleSpecComplete}
+                />
+              )}
+            </div>
+
+            <div className="space-y-2 border-t border-zinc-800 px-1 pt-3">
               <Button
                 type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowSpecViewer(false)}
-                className="h-8 w-8 text-zinc-400 hover:text-zinc-100">
-                <X className="h-4 w-4" />
+                variant="outline"
+                size="sm"
+                onClick={handleGenerateSpec}
+                disabled={isGeneratingSpec || nodes.length === 0}
+                className="w-full rounded-lg text-xs">
+                {isGeneratingSpec ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Generating spec...
+                  </>
+                ) : (
+                  <>
+                    <FileText className="h-3 w-3" />
+                    Generate Spec Draft
+                  </>
+                )}
               </Button>
-            </div>
-          </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-3">
-            {isLoadingSpec ? (
-              <div className="flex items-center justify-center gap-2 py-10 text-sm text-zinc-400">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading spec…
-              </div>
-            ) : specContent ? (
-              <div className="prose prose-sm prose-invert max-w-none text-zinc-300 prose-headings:text-zinc-100 prose-strong:text-zinc-200 prose-a:text-indigo-400">
-                <pre className="whitespace-pre-wrap break-words rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-xs leading-relaxed text-zinc-300 font-mono">
-                  {specContent}
-                </pre>
+              <form onSubmit={handleSubmit} className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Describe your system..."
+                  disabled={isLoading}
+                  className="h-9 rounded-lg"
+                />
+                <Button
+                  type="submit"
+                  size="icon"
+                  disabled={!input.trim() || isLoading}
+                  className="h-9 w-9 shrink-0 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40">
+                  <Send className="h-4 w-4" />
+                </Button>
+              </form>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="specs" className="mt-3 min-h-0 flex-1">
+            <ScrollArea className="h-full rounded-xl border border-zinc-800 bg-zinc-950/50 p-3">
+              {specs.length === 0 ? (
+                <div className="flex h-full min-h-[180px] items-center justify-center rounded-xl border border-dashed border-zinc-800 bg-zinc-900/30 px-4 text-center text-sm text-zinc-500">
+                  No specs yet. Generate your first draft from the AI Architect
+                  tab.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {specs.map((spec) => {
+                    const isSavedSpec = !spec.id.startsWith("local-");
+
+                    return (
+                      <Card
+                        key={spec.id}
+                        className="border-zinc-800 bg-zinc-900/70">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <CardTitle className="text-zinc-100">
+                                {spec.title}
+                              </CardTitle>
+                              <CardDescription className="text-xs text-zinc-500">
+                                Generated at{" "}
+                                {formatGeneratedTime(spec.createdAt)}
+                              </CardDescription>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleOpenSpec(spec)}
+                                className="h-8 w-8 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                                aria-label="View spec">
+                                <Eye className="h-4 w-4" />
+                              </Button>
+
+                              {isSavedSpec ? (
+                                <a
+                                  href={getDownloadUrl(roomId, spec.id)}
+                                  download
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100"
+                                  aria-label="Download spec markdown">
+                                  <Download className="h-4 w-4" />
+                                </a>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled
+                                  className="h-8 w-8 rounded-lg text-zinc-600"
+                                  aria-label="Download unavailable until saved">
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </CardHeader>
+
+                        <CardContent>
+                          <p className="text-sm text-zinc-400">
+                            {getSnippet(spec.content)}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
+      </aside>
+
+      <Dialog open={isSpecDialogOpen} onOpenChange={setIsSpecDialogOpen}>
+        <DialogContent className="w-[min(94vw,80rem)] max-w-5xl gap-0 overflow-hidden border-zinc-800 bg-zinc-900 p-0">
+          <DialogHeader className="flex-row items-center justify-between border-b border-zinc-800 px-6 py-4 pr-16">
+            <DialogTitle className="text-lg text-zinc-100">
+              {activeSpec?.title ?? "Spec"}
+            </DialogTitle>
+
+            {activeSpec && !activeSpec.id.startsWith("local-") && (
+              <a href={getDownloadUrl(roomId, activeSpec.id)} download>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-lg">
+                  <Download className="h-4 w-4" />
+                  Download .md
+                </Button>
+              </a>
+            )}
+          </DialogHeader>
+
+          <ScrollArea className="h-[70vh] px-6 py-5">
+            {activeSpec ? (
+              <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
+                <ReactMarkdown>{activeSpec.content}</ReactMarkdown>
               </div>
             ) : (
-              <p className="py-10 text-center text-sm text-zinc-500">
-                No spec found for this project. Generate one first.
+              <p className="py-8 text-center text-sm text-zinc-500">
+                No spec selected.
               </p>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Input ──────────────────────────────────────────────────── */}
-      <div className="border-t border-zinc-800 px-3 py-3 space-y-2">
-        <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleGenerateSpec}
-            disabled={isGeneratingSpec || nodes.length === 0}
-            className="flex-1 rounded-lg text-xs">
-            {isGeneratingSpec ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Generating…
-              </>
-            ) : (
-              <>
-                <FileText className="h-3 w-3" />
-                Generate Spec
-              </>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleViewSpec}
-            className="rounded-lg text-xs">
-            <FileText className="h-3 w-3" />
-            View
-          </Button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex items-center gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe your system…"
-            disabled={isLoading}
-            className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-indigo-500/50 disabled:opacity-60"
-          />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={!input.trim() || isLoading}
-            className="h-9 w-9 shrink-0 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40">
-            <Send className="h-4 w-4" />
-          </Button>
-        </form>
-      </div>
-    </aside>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

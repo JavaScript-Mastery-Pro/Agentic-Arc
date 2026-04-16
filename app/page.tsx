@@ -31,7 +31,7 @@ export default function Home() {
         </div>
 
         <Link
-          href="/editor/system-blueprint"
+          href="/editor"
           className="mt-4 inline-flex text-sm text-cyan-300 underline-offset-4 transition hover:text-cyan-200 hover:underline">
           Open collaborative editor
         </Link>

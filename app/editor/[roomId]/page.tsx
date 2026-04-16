@@ -1,7 +1,8 @@
-import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
+import { AccessDenied } from "@/components/AccessDenied";
 import { Editor } from "@/components/editor/editor";
+import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
 
 interface EditorPageProps {
@@ -11,20 +12,56 @@ interface EditorPageProps {
 }
 
 export default async function EditorPage({ params }: EditorPageProps) {
-  const { userId } = await auth();
+  const identity = await getAuthIdentity();
 
-  if (!userId) {
+  if (!identity) {
     redirect("/sign-in");
   }
 
   const { roomId: rawRoomId } = await params;
   const roomId = decodeURIComponent(rawRoomId);
 
-  const projects = await prisma.project.findMany({
-    where: { ownerClerkId: userId },
+  const hasAccess = await canAccessProject(roomId, identity);
+
+  if (!hasAccess) {
+    return <AccessDenied />;
+  }
+
+  const myProjects = await prisma.project.findMany({
+    where: { creatorId: identity.userId },
     orderBy: { createdAt: "desc" },
     select: { id: true, name: true },
   });
 
-  return <Editor roomId={roomId} projects={projects} />;
+  const sharedProjects = identity.email
+    ? await prisma.project.findMany({
+        where: {
+          creatorId: { not: identity.userId },
+          collaborators: {
+            some: {
+              collaboratorEmail: {
+                equals: identity.email,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, name: true },
+      })
+    : [];
+
+  const currentProject = await prisma.project.findUnique({
+    where: { id: roomId },
+    select: { creatorId: true },
+  });
+
+  return (
+    <Editor
+      roomId={roomId}
+      myProjects={myProjects}
+      sharedProjects={sharedProjects}
+      canManageSharing={currentProject?.creatorId === identity.userId}
+    />
+  );
 }

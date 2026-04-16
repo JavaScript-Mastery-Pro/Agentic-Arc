@@ -5,16 +5,29 @@ enum ProjectStatus {
 
 model Project {
   id               String        @id @default(cuid())
-  ownerClerkId     String
+  creatorId        String        @map("ownerClerkId")
   name             String
   description      String?
   status           ProjectStatus @default(DRAFT)
   canvasJsonPath   String?
   specMarkdownPath String?
   specs            ProjectSpec[]
+  collaborators    ProjectCollaborator[]
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  @@index([ownerClerkId])
+  @@index([creatorId])
   @@index([createdAt(sort: Desc)])
+}
+
+model ProjectCollaborator {
+  id                String   @id @default(cuid())
+  projectId         String
+  collaboratorEmail String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+
+  @@unique([projectId, collaboratorEmail])
+  @@index([collaboratorEmail])
+  @@index([projectId, createdAt(sort: Desc)])
 }

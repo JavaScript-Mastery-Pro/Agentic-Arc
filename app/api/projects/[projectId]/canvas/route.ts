@@ -1,8 +1,8 @@
-import { auth } from "@clerk/nextjs/server";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
 
+import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
 
 const CANVAS_DIR = join(process.cwd(), "data", "canvas");
@@ -12,15 +12,20 @@ interface RouteContext {
 }
 
 export async function GET(_request: Request, context: RouteContext) {
-  const { userId } = await auth();
+  const identity = await getAuthIdentity();
 
-  if (!userId) {
+  if (!identity) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { projectId } = await context.params;
 
-  // Any authenticated user can read the canvas (room access is handled by Liveblocks)
+  const hasAccess = await canAccessProject(projectId, identity);
+
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const project = await prisma.project.findUnique({
     where: { id: projectId },
   });
@@ -43,15 +48,20 @@ interface CanvasPayload {
 }
 
 export async function PUT(request: Request, context: RouteContext) {
-  const { userId } = await auth();
+  const identity = await getAuthIdentity();
 
-  if (!userId) {
+  if (!identity) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { projectId } = await context.params;
 
-  // Any authenticated user in the room can save canvas state
+  const hasAccess = await canAccessProject(projectId, identity);
+
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const project = await prisma.project.findUnique({
     where: { id: projectId },
   });

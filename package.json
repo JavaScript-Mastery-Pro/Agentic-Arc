@@ -20,6 +20,8 @@
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-tabs": "^1.1.13",
     "@trigger.dev/react-hooks": "^4.4.4",
     "@trigger.dev/sdk": "^4.4.4",
     "@xyflow/react": "^12.10.2",

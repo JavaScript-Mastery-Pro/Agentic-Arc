@@ -1,7 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
 import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 
+import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
 
 interface RouteContext {
@@ -9,18 +9,24 @@ interface RouteContext {
 }
 
 export async function GET(_request: Request, context: RouteContext) {
-  const { userId } = await auth();
+  const identity = await getAuthIdentity();
 
-  if (!userId) {
+  if (!identity) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { projectId, specId } = await context.params;
 
+  const hasAccess = await canAccessProject(projectId, identity);
+
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const spec = await prisma.projectSpec.findFirst({
     where: {
       id: specId,
-      project: { id: projectId, ownerClerkId: userId },
+      project: { id: projectId },
     },
     select: { filePath: true, createdAt: true },
   });

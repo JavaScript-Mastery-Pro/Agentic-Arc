@@ -1,8 +1,8 @@
-import { auth } from "@clerk/nextjs/server";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
 
+import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
 
 const SPEC_DIR = join(process.cwd(), "data", "specs");
@@ -16,29 +16,26 @@ interface SaveSpecBody {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const { userId } = await auth();
+  const identity = await getAuthIdentity();
 
-  if (!userId) {
+  if (!identity) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { projectId } = await context.params;
   const body = (await request.json()) as SaveSpecBody;
 
+  const hasAccess = await canAccessProject(projectId, identity);
+
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   if (!body.specContent) {
     return NextResponse.json(
       { error: "specContent is required." },
       { status: 400 },
     );
-  }
-
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, ownerClerkId: userId },
-    select: { id: true },
-  });
-
-  if (!project) {
-    return NextResponse.json({ error: "Project not found." }, { status: 404 });
   }
 
   // Create a DB record first to get the ID for the filename

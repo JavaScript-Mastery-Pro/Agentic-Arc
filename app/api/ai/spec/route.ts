@@ -1,7 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
 import { tasks } from "@trigger.dev/sdk";
 import { NextResponse } from "next/server";
 
+import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
 
 interface GenerateSpecBody {
@@ -13,9 +13,9 @@ interface GenerateSpecBody {
 }
 
 export async function POST(request: Request) {
-  const { userId } = await auth();
+  const identity = await getAuthIdentity();
 
-  if (!userId) {
+  if (!identity) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -26,6 +26,12 @@ export async function POST(request: Request) {
       { error: "roomId, nodes, and edges are required." },
       { status: 400 },
     );
+  }
+
+  const hasAccess = await canAccessProject(body.roomId, identity);
+
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const handle = await tasks.trigger<typeof generateSpecGemini>(

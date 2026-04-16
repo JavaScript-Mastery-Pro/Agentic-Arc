@@ -2,14 +2,15 @@
 
 ## Stack
 
-| Layer                  | Technology                                                  |
-| ---------------------- | ----------------------------------------------------------- |
-| Framework              | Next.js (App Router) + TypeScript                           |
-| Styling                | Tailwind CSS — dark "Cyber-Blueprint" theme (zinc-950 base) |
-| Auth                   | Clerk                                                       |
-| Realtime collaboration | Liveblocks                                                  |
-| Canvas                 | React Flow (`@xyflow/react`) + `@liveblocks/react-flow`     |
-| Database               | PostgreSQL via Prisma ORM (schema ready, Prisma v7 config)  |
+| Layer                  | Technology                                                                  |
+| ---------------------- | --------------------------------------------------------------------------- |
+| Framework              | Next.js (App Router) + TypeScript                                           |
+| Styling                | Tailwind CSS — dark "Cyber-Blueprint" theme (zinc-950 base)                 |
+| Auth                   | Clerk                                                                       |
+| Realtime collaboration | Liveblocks                                                                  |
+| Canvas                 | React Flow (`@xyflow/react`) + `@liveblocks/react-flow`                     |
+| Database               | PostgreSQL via Prisma ORM (schema ready, Prisma v7 config)                  |
+| AI Spec Generation     | Gemini-powered, Trigger.dev background tasks, file-based multi-spec storage |
 
 ---
 
@@ -108,9 +109,27 @@
 
 ---
 
-## Database (ready, not yet wired to UI)
+## AI-Powered Spec Generation & Download
 
-- Prisma v7 schema configured with PostgreSQL.
-- Prisma client output pointed to `app/generated/prisma`.
-- `prisma.config.ts` present for Prisma Postgres / Accelerate compatibility.
-- Schema is minimal (datasource + generator) — ready to extend with Project/User models when persistence is needed.
+- **Gemini-powered spec generation**: Users can generate system design specs using Gemini via Trigger.dev background tasks.
+- **Multi-spec support**: Each project can have multiple specs, each stored as a separate Markdown file on disk (`data/specs/{projectId}/{specId}.md`).
+- **Downloadable specs**: Every generated spec is downloadable via a dedicated API endpoint.
+- **ProjectSpec model**: Prisma schema includes a `ProjectSpec` model for spec metadata (id, projectId, filePath, createdAt).
+- **Sidebar integration**: The editor sidebar allows users to generate, view, and download specs per project.
+- **No large blobs in DB**: Only spec metadata is stored in the database; spec content is stored as files for scalability and downloadability.
+
+## Database & Backend
+
+- Prisma v7 schema extended with `Project` and `ProjectSpec` models.
+- All migrations applied and Prisma client output to `app/generated/prisma`.
+- File-based spec storage implemented for robust, scalable artifact management.
+- API endpoints:
+  - `POST /api/projects/[projectId]/spec`: Save a new spec (writes file, creates DB record).
+  - `GET /api/projects/[projectId]/specs/[specId]/download`: Download a spec file.
+  - `GET /api/ai/spec/[roomId]`: Fetch latest spec content and ID for a project.
+
+## UI & Sidebar
+
+- Sidebar lists all rooms/projects and supports spec generation and download per project.
+- Download links for each spec are available directly in the sidebar.
+- UI state and error handling for spec generation, saving, and download are robust and user-friendly.

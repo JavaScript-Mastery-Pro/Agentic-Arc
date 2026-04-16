@@ -1,0 +1,58 @@
+{
+  "configPath": "/Users/shohanmir/Documents/jsm_works/YouTube/liveblocks/agentic-arc/.trigger/tmp/build-WWU24e/Documents/jsm_works/YouTube/liveblocks/agentic-arc/trigger.config.mjs",
+  "customConditions": [
+  ],
+  "prompts": [
+  ],
+  "queues": [
+  ],
+  "runtime": "node",
+  "runtimeVersion": "24.12.0",
+  "tasks": [
+    {
+      "entryPoint": "/Users/shohanmir/Documents/jsm_works/YouTube/liveblocks/agentic-arc/.trigger/tmp/build-WWU24e/Documents/jsm_works/YouTube/liveblocks/agentic-arc/trigger/design-agent.mjs",
+      "filePath": "trigger/design-agent.ts",
+      "id": "design-agent",
+      "maxDuration": 300000,
+      "retry": {
+        "factor": 2,
+        "maxAttempts": 1,
+        "maxTimeoutInMs": 60000,
+        "minTimeoutInMs": 1000,
+        "randomize": true
+      }
+    },
+    {
+      "entryPoint": "/Users/shohanmir/Documents/jsm_works/YouTube/liveblocks/agentic-arc/.trigger/tmp/build-WWU24e/Documents/jsm_works/YouTube/liveblocks/agentic-arc/trigger/generate-spec-gemini.mjs",
+      "filePath": "trigger/generate-spec-gemini.ts",
+      "id": "generate-spec-gemini",
+      "maxDuration": 300000,
+      "retry": {
+        "factor": 2,
+        "maxAttempts": 2,
+        "maxTimeoutInMs": 60000,
+        "minTimeoutInMs": 1000,
+        "randomize": true
+      }
+    },
+    {
+      "entryPoint": "/Users/shohanmir/Documents/jsm_works/YouTube/liveblocks/agentic-arc/.trigger/tmp/build-WWU24e/Documents/jsm_works/YouTube/liveblocks/agentic-arc/trigger/generate-spec.mjs",
+      "filePath": "trigger/generate-spec.ts",
+      "id": "generate-spec",
+      "maxDuration": 300000,
+      "retry": {
+        "factor": 2,
+        "maxAttempts": 2,
+        "maxTimeoutInMs": 60000,
+        "minTimeoutInMs": 1000,
+        "randomize": true
+      }
+    }
+  ],
+  "timings": {
+    "trigger/design-agent.ts": 38.46183400000001,
+    "trigger/generate-spec-gemini.ts": 1.221084000000019,
+    "trigger/generate-spec.ts": 5.816417000000001
+  },
+  "workerEntryPoint": "/Users/shohanmir/Documents/jsm_works/YouTube/liveblocks/agentic-arc/.trigger/tmp/build-WWU24e/.npm/_npx/f51a09bd0abf5f10/node_modules/trigger.dev/dist/esm/entryPoints/dev-run-worker.mjs"
+}

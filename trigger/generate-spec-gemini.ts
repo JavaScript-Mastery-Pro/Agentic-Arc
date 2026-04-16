@@ -26,7 +26,11 @@ type SpecPayload = z.infer<typeof specPayloadSchema>;
 export const generateSpecGemini = task({
   id: "generate-spec-gemini",
   retry: {
-    maxAttempts: 2,
+    maxAttempts: 5,
+    minTimeoutInMs: 10_000,
+    maxTimeoutInMs: 60_000,
+    factor: 2,
+    randomize: true,
   },
   run: async (payload: SpecPayload) => {
     const parsed = specPayloadSchema.parse(payload);
@@ -55,6 +59,7 @@ export const generateSpecGemini = task({
 
     // ── Step 3: Generate spec via Gemini ──────────────────────────
     const result = await generateText({
+      maxRetries: 0, // disable AI SDK retries — let Trigger.dev handle outer retries
       model: gemini(
         process.env.GEMINI_SPEC_MODEL ??
           process.env.GEMINI_MODEL ??

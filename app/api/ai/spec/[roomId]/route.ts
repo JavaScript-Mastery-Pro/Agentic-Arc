@@ -1,11 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { NextResponse } from "next/server";
 
 import prisma from "@/lib/prisma";
-
-const SPEC_DIR = join(process.cwd(), "data", "specs");
 
 interface RouteContext {
   params: Promise<{ roomId: string }>;
@@ -19,28 +16,27 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   const { roomId } = await context.params;
-  const filePath = join(SPEC_DIR, `${roomId}.md`);
 
-  try {
-    const content = await readFile(filePath, "utf-8");
+  // Get the most recent spec for this project
+  const spec = await prisma.projectSpec.findFirst({
+    where: { project: { id: roomId, ownerClerkId: userId } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, filePath: true, createdAt: true },
+  });
 
-    // Update project record if not already set
-    const project = await prisma.project.findUnique({
-      where: { id: roomId },
-      select: { specMarkdownPath: true },
-    });
-
-    if (project && !project.specMarkdownPath) {
-      await prisma.project.update({
-        where: { id: roomId },
-        data: { specMarkdownPath: filePath },
-      });
-    }
-
-    return NextResponse.json({ content, filePath });
-  } catch {
+  if (!spec?.filePath) {
     return NextResponse.json(
       { error: "Spec not found. Generate one first." },
+      { status: 404 },
+    );
+  }
+
+  try {
+    const content = await readFile(spec.filePath, "utf-8");
+    return NextResponse.json({ spec: content, specId: spec.id });
+  } catch {
+    return NextResponse.json(
+      { error: "Spec file missing. Please regenerate." },
       { status: 404 },
     );
   }

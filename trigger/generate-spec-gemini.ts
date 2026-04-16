@@ -1,8 +1,6 @@
-import { createOpenAI } from "@ai-sdk/openai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { task, metadata } from "@trigger.dev/sdk";
 import { generateText } from "ai";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { z } from "zod";
 
 // ── Payload schema ──────────────────────────────────────────────────
@@ -21,29 +19,22 @@ const specPayloadSchema = z.object({
 
 type SpecPayload = z.infer<typeof specPayloadSchema>;
 
-// ── OpenRouter client ───────────────────────────────────────────────
-function getOpenRouterClient() {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set.");
-
-  return createOpenAI({
-    baseURL: "https://openrouter.ai/api/v1",
-    apiKey,
-  });
-}
-
 // ── Constants ───────────────────────────────────────────────────────
-const SPEC_DIR = join(process.cwd(), "data", "specs");
+// (spec content is returned as task output and saved to DB by the caller)
 
 // ── Task ────────────────────────────────────────────────────────────
-export const generateSpec = task({
-  id: "generate-spec",
+export const generateSpecGemini = task({
+  id: "generate-spec-gemini",
   retry: {
     maxAttempts: 2,
   },
   run: async (payload: SpecPayload) => {
     const parsed = specPayloadSchema.parse(payload);
-    const openrouter = getOpenRouterClient();
+
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    if (!apiKey) throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set.");
+
+    const gemini = createGoogleGenerativeAI({ apiKey });
 
     // ── Step 1: Update status ─────────────────────────────────────
     await metadata.set("status", "generating");
@@ -62,14 +53,13 @@ export const generateSpec = task({
 
     await metadata.set("progress", 20);
 
-    // ── Step 3: Generate spec via LLM ─────────────────────────────
+    // ── Step 3: Generate spec via Gemini ──────────────────────────
     const result = await generateText({
-      model: openrouter.chat(
-        process.env.OPENROUTER_SPEC_MODEL ??
-          process.env.OPENROUTER_MODEL ??
-          "google/gemini-2.0-flash-exp:free",
+      model: gemini(
+        process.env.GEMINI_SPEC_MODEL ??
+          process.env.GEMINI_MODEL ??
+          "gemini-2.0-flash",
       ),
-      // maxOutputTokens: 8192,
       system: `You are a senior software architect. You generate comprehensive, production-ready technical specifications in Markdown format.
 
 Given a system architecture diagram (nodes and edges) and the conversation history between a user and an AI architect, produce a detailed project specification.
@@ -128,24 +118,14 @@ Generate a comprehensive technical specification for this system.`,
 
     await metadata.set("progress", 80);
 
-    // ── Step 4: Save spec to disk ─────────────────────────────────
+    // ── Step 4: Return spec content for the caller to persist ─────
     const specContent = result.text;
-    await mkdir(SPEC_DIR, { recursive: true });
 
-    const filePath = join(SPEC_DIR, `${parsed.roomId}.md`);
-    await writeFile(filePath, specContent, "utf-8");
-
-    await metadata.set("progress", 90);
-
-    // ── Step 5: Update project in DB ──────────────────────────────
-    // We use a dynamic import to avoid bundling prisma in the trigger worker
-    // The API route will handle the DB update instead via the callback
     await metadata.set("progress", 100);
     await metadata.set("status", "complete");
 
     return {
-      filePath,
-      specLength: specContent.length,
+      specContent,
       roomId: parsed.roomId,
       projectId: parsed.projectId,
     };

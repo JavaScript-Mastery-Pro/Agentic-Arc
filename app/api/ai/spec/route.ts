@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { tasks } from "@trigger.dev/sdk";
 import { NextResponse } from "next/server";
 
-import type { generateSpec } from "@/trigger/generate-spec";
+import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
 
 interface GenerateSpecBody {
   roomId?: string;
@@ -28,13 +28,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const handle = await tasks.trigger<typeof generateSpec>("generate-spec", {
-    projectId: body.projectId ?? body.roomId,
-    roomId: body.roomId,
-    chatHistory: body.chatHistory ?? [],
-    nodes: body.nodes as Record<string, unknown>[],
-    edges: body.edges as Record<string, unknown>[],
-  });
+  const handle = await tasks.trigger<typeof generateSpecGemini>(
+    "generate-spec-gemini",
+    {
+      projectId: body.projectId ?? body.roomId,
+      roomId: body.roomId,
+      chatHistory: body.chatHistory ?? [],
+      nodes: body.nodes as Record<string, unknown>[],
+      edges: body.edges as Record<string, unknown>[],
+    },
+  );
 
   return NextResponse.json({
     runId: handle.id,

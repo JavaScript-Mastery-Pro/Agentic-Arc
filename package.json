@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.63",
     "@ai-sdk/openai": "^3.0.53",
     "@clerk/nextjs": "^7.2.0",
     "@liveblocks/client": "^3.18.1",

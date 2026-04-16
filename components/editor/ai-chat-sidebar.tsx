@@ -15,7 +15,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { generateSpec } from "@/trigger/generate-spec";
+import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
+import type { designAgent } from "@/trigger/design-agent";
 
 interface ChatMessage {
   id: string;
@@ -31,19 +32,17 @@ interface AiChatSidebarProps {
   edges: Record<string, unknown>[];
 }
 
-// ── Spec run tracker ────────────────────────────────────────────────
-function SpecRunTracker({
+// ── Design run tracker ─────────────────────────────────────────────
+function DesignRunTracker({
   runId,
   accessToken,
-  roomId,
   onComplete,
 }: {
   runId: string;
   accessToken: string;
-  roomId: string;
-  onComplete: () => void;
+  onComplete: (succeeded: boolean) => void;
 }) {
-  const { run, error } = useRealtimeRun<typeof generateSpec>(runId, {
+  const { run, error } = useRealtimeRun<typeof designAgent>(runId, {
     accessToken,
   });
 
@@ -56,7 +55,59 @@ function SpecRunTracker({
       (run.status === "COMPLETED" || run.status === "FAILED")
     ) {
       completed.current = true;
-      onComplete();
+      onComplete(run.status === "COMPLETED");
+    }
+  }, [run, onComplete]);
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+        Failed to track AI progress.
+      </div>
+    );
+  }
+
+  const isRunning =
+    !run || (run.status !== "COMPLETED" && run.status !== "FAILED");
+
+  if (!isRunning) return null;
+
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
+      <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
+      <span>AI is working on the canvas…</span>
+    </div>
+  );
+}
+
+// ── Spec run tracker ────────────────────────────────────────────────
+function SpecRunTracker({
+  runId,
+  accessToken,
+  onComplete,
+}: {
+  runId: string;
+  accessToken: string;
+  onComplete: (specContent: string | null) => void;
+}) {
+  const { run, error } = useRealtimeRun<typeof generateSpecGemini>(runId, {
+    accessToken,
+  });
+
+  const completed = useRef(false);
+
+  useEffect(() => {
+    if (
+      !completed.current &&
+      run &&
+      (run.status === "COMPLETED" || run.status === "FAILED")
+    ) {
+      completed.current = true;
+      const specContent =
+        run.status === "COMPLETED" && run.output
+          ? (run.output as { specContent: string }).specContent
+          : null;
+      onComplete(specContent);
     }
   }, [run, onComplete]);
 
@@ -68,35 +119,16 @@ function SpecRunTracker({
     );
   }
 
-  if (!run) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Connecting…
-      </div>
-    );
-  }
-
-  const progress = (run.metadata as Record<string, unknown> | undefined)
+  const progress = (run?.metadata as Record<string, unknown> | undefined)
     ?.progress as number | undefined;
-  const status = (run.metadata as Record<string, unknown> | undefined)
+  const status = (run?.metadata as Record<string, unknown> | undefined)
     ?.status as string | undefined;
-
-  const isRunning = run.status !== "COMPLETED" && run.status !== "FAILED";
 
   return (
     <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-zinc-300">
-          {run.status === "COMPLETED"
-            ? "Spec generated!"
-            : run.status === "FAILED"
-              ? "Spec generation failed"
-              : (status ?? "Generating spec…")}
-        </span>
-        {isRunning && (
-          <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
-        )}
+        <span className="text-zinc-300">{status ?? "Connecting…"}</span>
+        <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
       </div>
 
       {typeof progress === "number" && (
@@ -106,17 +138,6 @@ function SpecRunTracker({
             style={{ width: `${Math.min(progress, 100)}%` }}
           />
         </div>
-      )}
-
-      {run.status === "COMPLETED" && (
-        <a
-          href={`/api/ai/spec/${encodeURIComponent(roomId)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-1 flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition">
-          <FileText className="h-3 w-3" />
-          View spec
-        </a>
       )}
     </div>
   );
@@ -134,10 +155,17 @@ export function AiChatSidebar({
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // ── Design agent state ───────────────────────────────────────────
+  const [designRunId, setDesignRunId] = useState<string | null>(null);
+  const [designAccessToken, setDesignAccessToken] = useState<string | null>(
+    null,
+  );
+
   // ── Spec generation state ─────────────────────────────────────────
   const [specRunId, setSpecRunId] = useState<string | null>(null);
   const [specAccessToken, setSpecAccessToken] = useState<string | null>(null);
   const [isGeneratingSpec, setIsGeneratingSpec] = useState(false);
+  const [latestSpecId, setLatestSpecId] = useState<string | null>(null);
   const [showSpecViewer, setShowSpecViewer] = useState(false);
   const [specContent, setSpecContent] = useState<string | null>(null);
   const [isLoadingSpec, setIsLoadingSpec] = useState(false);
@@ -151,10 +179,44 @@ export function AiChatSidebar({
     });
   }
 
-  const handleSpecComplete = useCallback(() => {
-    // Auto-open spec viewer when done
-    setIsGeneratingSpec(false);
+  const handleDesignComplete = useCallback((succeeded: boolean) => {
+    setDesignRunId(null);
+    setDesignAccessToken(null);
+    setIsLoading(false);
+    const assistantMessage: ChatMessage = {
+      id: `ai-${Date.now()}`,
+      role: "assistant",
+      content: succeeded
+        ? "Done! I've updated the canvas based on your request."
+        : "Something went wrong. Please try again.",
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+    scrollToBottom();
   }, []);
+
+  const handleSpecComplete = useCallback(
+    async (specContent: string | null) => {
+      setSpecRunId(null);
+      setSpecAccessToken(null);
+      setIsGeneratingSpec(false);
+
+      if (specContent) {
+        // Save spec to disk via the API route, which writes the .md file
+        const res = await fetch(`/api/projects/${roomId}/spec`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ specContent }),
+        });
+
+        if (res.ok) {
+          const { specId } = (await res.json()) as { specId: string };
+          setLatestSpecId(specId);
+        }
+        setSpecContent(specContent);
+      }
+    },
+    [roomId],
+  );
 
   async function handleGenerateSpec() {
     if (isGeneratingSpec) return;
@@ -214,8 +276,9 @@ export function AiChatSidebar({
       const res = await fetch(`/api/ai/spec/${encodeURIComponent(roomId)}`);
 
       if (res.ok) {
-        const data = (await res.json()) as { spec: string };
+        const data = (await res.json()) as { spec: string; specId: string };
         setSpecContent(data.spec);
+        setLatestSpecId(data.specId);
       } else {
         setSpecContent(null);
       }
@@ -224,18 +287,6 @@ export function AiChatSidebar({
     } finally {
       setIsLoadingSpec(false);
     }
-  }
-
-  function handleDownloadSpec() {
-    if (!specContent) return;
-
-    const blob = new Blob([specContent], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${roomId}-spec.md`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -256,21 +307,38 @@ export function AiChatSidebar({
     scrollToBottom();
 
     try {
-      const response = await fetch("/api/ai/design", {
+      // 1. Trigger the design agent task (returns immediately)
+      const triggerRes = await fetch("/api/ai/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ roomId, prompt }),
       });
 
-      const assistantMessage: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        role: "assistant",
-        content: response.ok
-          ? "Done! I've updated the canvas based on your request."
-          : "Something went wrong. Please try again.",
+      if (!triggerRes.ok) {
+        throw new Error("Failed to trigger design agent.");
+      }
+
+      const { runId } = (await triggerRes.json()) as { runId: string };
+
+      // 2. Get a public token for realtime subscription
+      const tokenRes = await fetch("/api/ai/design/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId }),
+      });
+
+      if (!tokenRes.ok) {
+        throw new Error("Failed to get design token.");
+      }
+
+      const { publicToken } = (await tokenRes.json()) as {
+        publicToken: string;
       };
 
-      setMessages((prev) => [...prev, assistantMessage]);
+      // 3. Subscribe — isLoading stays true until handleDesignComplete fires
+      setDesignRunId(runId);
+      setDesignAccessToken(publicToken);
+      scrollToBottom();
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -280,7 +348,6 @@ export function AiChatSidebar({
           content: "Failed to reach the AI service. Please try again.",
         },
       ]);
-    } finally {
       setIsLoading(false);
       scrollToBottom();
     }
@@ -370,13 +437,13 @@ export function AiChatSidebar({
           ))
         )}
 
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-400">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Designing on canvas…
-            </div>
-          </div>
+        {/* ── Design agent tracker ─────────────────────────────── */}
+        {designRunId && designAccessToken && (
+          <DesignRunTracker
+            runId={designRunId}
+            accessToken={designAccessToken}
+            onComplete={handleDesignComplete}
+          />
         )}
 
         {/* ── Spec generation tracker ──────────────────────────────── */}
@@ -384,7 +451,6 @@ export function AiChatSidebar({
           <SpecRunTracker
             runId={specRunId}
             accessToken={specAccessToken}
-            roomId={roomId}
             onComplete={handleSpecComplete}
           />
         )}
@@ -401,15 +467,13 @@ export function AiChatSidebar({
               </p>
             </div>
             <div className="flex items-center gap-1">
-              {specContent && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleDownloadSpec}
-                  className="h-8 w-8 text-zinc-400 hover:text-zinc-100">
+              {specContent && latestSpecId && (
+                <a
+                  href={`/api/projects/${roomId}/specs/${latestSpecId}/download`}
+                  download
+                  className="flex h-8 w-8 items-center justify-center rounded text-zinc-400 hover:text-zinc-100 transition">
                   <Download className="h-4 w-4" />
-                </Button>
+                </a>
               )}
               <Button
                 type="button"

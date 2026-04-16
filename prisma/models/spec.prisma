@@ -1,0 +1,10 @@
+model ProjectSpec {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  filePath  String
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([createdAt(sort: Desc)])
+}

@@ -1,7 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
+import { tasks } from "@trigger.dev/sdk";
 import { NextResponse } from "next/server";
 
-import { runDesignAgent } from "@/lib/ai-agent";
+import type { designAgent } from "@/trigger/design-agent";
 
 interface DesignRequestBody {
   roomId?: string;
@@ -26,14 +27,10 @@ export async function POST(request: Request) {
     );
   }
 
-  try {
-    await runDesignAgent(roomId, prompt);
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("AI design agent error:", error);
-    return NextResponse.json(
-      { error: "AI agent failed. Please try again." },
-      { status: 500 },
-    );
-  }
+  const handle = await tasks.trigger<typeof designAgent>("design-agent", {
+    roomId,
+    prompt,
+  });
+
+  return NextResponse.json({ runId: handle.id, status: "triggered" });
 }

@@ -2,6 +2,7 @@ import { currentUser, auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import { getLiveblocks, getUserColor } from "@/lib/liveblocks";
+import { canAccessProject, normalizeEmail } from "@/lib/project-access";
 
 function getDisplayName(user: Awaited<ReturnType<typeof currentUser>>) {
   return (
@@ -31,8 +32,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const liveblocks = getLiveblocks();
     const user = await currentUser();
+    const email = user?.primaryEmailAddress?.emailAddress
+      ? normalizeEmail(user.primaryEmailAddress.emailAddress)
+      : null;
+
+    const hasAccess = await canAccessProject(roomId, {
+      userId,
+      email,
+    });
+
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const liveblocks = getLiveblocks();
 
     await liveblocks.getOrCreateRoom(roomId, {
       defaultAccesses: ["room:write"],

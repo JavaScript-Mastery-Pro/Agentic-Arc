@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agentic Arc",
-  description: "Agentic Arc collaboration workspace",
+  title: "Ghost Arc",
+  description: "Ghost Arc — AI-powered collaborative system design",
 };
 
 export default function RootLayout({

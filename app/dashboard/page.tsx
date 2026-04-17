@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
-  redirect("/editor/system-blueprint");
+  redirect("/editor");
 }

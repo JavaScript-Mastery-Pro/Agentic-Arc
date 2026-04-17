@@ -6,29 +6,26 @@ import { mutateFlow } from "@liveblocks/react-flow/node";
 import { generateText, stepCountIs, tool } from "ai";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import type { Edge, Node } from "@xyflow/react";
-
-// ── Types ───────────────────────────────────────────────────────────
-interface CanvasNodeData extends Record<string, unknown> {
-  label: string;
-  color: string;
-  shape?: string;
-}
-
-type CanvasNode = Node<CanvasNodeData, "canvasNode">;
-type CanvasEdge = Edge;
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface Bounds {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
+import {
+  easeInOutCubic,
+  getBoundsFromNodes,
+  getEdgeHandles,
+  getMidpoint,
+  getNodeCenter,
+  getRandomPointInBounds,
+  sleep,
+} from "@/lib/canvas-utils";
+import {
+  DEFAULT_EDGE_COLOR,
+  DEFAULT_NODE_COLOR,
+  NODE_COLORS,
+  NODE_SHAPES,
+  type Bounds,
+  type CanvasEdge,
+  type CanvasNode,
+  type CanvasNodeData,
+  type Point,
+} from "@/types/canvas";
 
 // ── Constants ───────────────────────────────────────────────────────
 const PRESENCE_TTL = 20;
@@ -43,91 +40,6 @@ const AGENT_INFO = {
   avatar: "",
   color: "#6366f1",
 };
-
-const NODE_SHAPES = ["rectangle", "diamond", "circle", "pill"] as const;
-const NODE_COLORS = [
-  "#1e293b",
-  "#1e3a8a",
-  "#0369a1",
-  "#0f766e",
-  "#065f46",
-  "#3730a3",
-  "#5b21b6",
-  "#7e22ce",
-  "#9f1239",
-  "#9a3412",
-] as const;
-
-// ── Helpers ─────────────────────────────────────────────────────────
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function easeInOutCubic(t: number) {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
-
-function getNodeCenter(node: CanvasNode): Point {
-  const w = node.width ?? 260;
-  const h = node.height ?? 120;
-  return {
-    x: (node.position?.x ?? 0) + w / 2,
-    y: (node.position?.y ?? 0) + h / 2,
-  };
-}
-
-function getBoundsFromNodes(nodes: CanvasNode[]): Bounds | null {
-  if (nodes.length === 0) return null;
-
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-
-  for (const node of nodes) {
-    const x = node.position?.x ?? 0;
-    const y = node.position?.y ?? 0;
-    const w = node.width ?? 260;
-    const h = node.height ?? 120;
-
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x + w > maxX) maxX = x + w;
-    if (y + h > maxY) maxY = y + h;
-  }
-
-  return { minX, minY, maxX, maxY };
-}
-
-function getRandomPointInBounds(bounds: Bounds): Point {
-  return {
-    x: bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
-    y: bounds.minY + Math.random() * (bounds.maxY - bounds.minY),
-  };
-}
-
-function getMidpoint(a: Point, b: Point): Point {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-
-function getEdgeHandles(
-  source: CanvasNode,
-  target: CanvasNode,
-): { sourceHandle: string; targetHandle: string } {
-  const sc = getNodeCenter(source);
-  const tc = getNodeCenter(target);
-  const dx = tc.x - sc.x;
-  const dy = tc.y - sc.y;
-
-  if (Math.abs(dx) > Math.abs(dy)) {
-    return dx > 0
-      ? { sourceHandle: "right", targetHandle: "left" }
-      : { sourceHandle: "left", targetHandle: "right" };
-  }
-  return dy > 0
-    ? { sourceHandle: "bottom", targetHandle: "top" }
-    : { sourceHandle: "top", targetHandle: "bottom" };
-}
 
 // ── OpenRouter client ───────────────────────────────────────────────
 function getOpenRouterClient() {
@@ -288,7 +200,7 @@ ${prompt}
                     height: h,
                     data: {
                       label: input.label ?? "",
-                      color: input.color ?? "#1e293b",
+                      color: input.color ?? DEFAULT_NODE_COLOR,
                       shape: input.shape ?? "rectangle",
                     },
                   } as CanvasNode);
@@ -467,10 +379,10 @@ ${prompt}
                     sourceHandle,
                     targetHandle,
                     type: "smoothstep",
-                    style: { stroke: "#e2e8f0", strokeWidth: 1.8 },
+                    style: { stroke: DEFAULT_EDGE_COLOR, strokeWidth: 1.8 },
                     markerEnd: {
                       type: "arrowclosed" as unknown as import("@xyflow/react").MarkerType,
-                      color: "#e2e8f0",
+                      color: DEFAULT_EDGE_COLOR,
                       width: 14,
                       height: 14,
                     },

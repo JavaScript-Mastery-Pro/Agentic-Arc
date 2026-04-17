@@ -171,7 +171,7 @@ export function EditorHome({ myProjects, sharedProjects }: EditorHomeProps) {
           <div className="absolute inset-0 bg-[linear-gradient(rgba(39,39,42,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.5)_1px,transparent_1px)] bg-[size:36px_36px]" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.08),_transparent_42%),radial-gradient(circle_at_bottom,_rgba(99,102,241,0.08),_transparent_42%)]" />
 
-          <div className="relative z-10 flex h-full items-center justify-center px-6">
+          {/* <div className="relative z-10 flex h-full items-center justify-center px-6">
             <div className="max-w-xl rounded-3xl border border-zinc-800 bg-zinc-900/70 p-10 text-center shadow-2xl shadow-black/40 backdrop-blur">
               <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">
                 Welcome to your architecture workspace
@@ -181,7 +181,7 @@ export function EditorHome({ myProjects, sharedProjects }: EditorHomeProps) {
                 started.
               </p>
             </div>
-          </div>
+          </div> */}
         </main>
       </div>
     </div>

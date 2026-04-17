@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
 
@@ -13,6 +13,47 @@ interface RouteContext {
 
 interface SaveSpecBody {
   specContent?: string;
+}
+
+export async function GET(_request: Request, context: RouteContext) {
+  const identity = await getAuthIdentity();
+
+  if (!identity) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { projectId } = await context.params;
+
+  const hasAccess = await canAccessProject(projectId, identity);
+
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const records = await prisma.projectSpec.findMany({
+    where: { projectId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, filePath: true, createdAt: true },
+  });
+
+  const specs = await Promise.all(
+    records.map(async (record, index) => {
+      let content = "";
+      try {
+        content = await readFile(record.filePath, "utf-8");
+      } catch {
+        // file missing — skip silently, return empty content
+      }
+      return {
+        id: record.id,
+        title: `Spec v${index + 1}`,
+        content,
+        createdAt: record.createdAt.toISOString(),
+      };
+    }),
+  );
+
+  return NextResponse.json({ specs });
 }
 
 export async function POST(request: Request, context: RouteContext) {

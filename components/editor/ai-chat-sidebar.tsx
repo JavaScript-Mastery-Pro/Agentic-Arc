@@ -216,6 +216,27 @@ export function AiChatSidebar({
     [activeSpecId, specs],
   );
 
+  // Load persisted specs from the server on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSpecs() {
+      try {
+        const res = await fetch(`/api/projects/${roomId}/spec`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { specs: StoredSpec[] };
+        if (!cancelled) setSpecs(data.specs);
+      } catch {
+        // silently ignore — specs will be empty until one is generated
+      }
+    }
+
+    void loadSpecs();
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId]);
+
   function scrollToBottom() {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({

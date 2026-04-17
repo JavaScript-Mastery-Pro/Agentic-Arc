@@ -9,13 +9,19 @@ import {
   ClientSideSuspense,
   LiveblocksProvider,
   RoomProvider,
+  useCanRedo,
+  useCanUndo,
   useOther,
   useOthersMapped,
+  useRedo,
   useSelf,
+  useUndo,
 } from "@liveblocks/react/suspense";
 import {
   Background,
+  BaseEdge,
   ConnectionMode,
+  EdgeLabelRenderer,
   Handle,
   MarkerType,
   MiniMap,
@@ -23,9 +29,9 @@ import {
   NodeToolbar,
   Position,
   ReactFlow,
+  getSmoothStepPath,
   useReactFlow,
-  type Edge,
-  type Node,
+  type EdgeProps,
   type NodeProps,
   type ReactFlowInstance,
 } from "@xyflow/react";
@@ -33,17 +39,22 @@ import {
   Check,
   Circle,
   Copy,
+  Database,
   Diamond,
+  Hexagon,
   Link2,
   Loader2,
+  Maximize2,
   Minus,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   RectangleHorizontal,
+  Redo2,
   RefreshCw,
   Save,
   Sparkles,
+  Undo2,
   Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -73,6 +84,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  DEFAULT_EDGE_COLOR,
+  DEFAULT_NODE_COLOR,
+  NODE_COLORS,
+  type CanvasEdge,
+  type CanvasNode,
+  type NodeShape,
+} from "@/types/canvas";
 import { cn } from "@/lib/utils";
 
 interface EditorProps {
@@ -94,44 +113,17 @@ interface PresenceUserInfo {
   color: string;
 }
 
-interface CanvasNodeData extends Record<string, unknown> {
-  label: string;
-  color: string;
-  shape?: NodeShape;
-}
-
-type NodeShape = "rectangle" | "diamond" | "circle" | "pill";
-
-type CanvasNode = Node<CanvasNodeData, "canvasNode">;
-type CanvasEdge = Edge;
-
-const defaultNodeColor = "#1e293b";
-const defaultEdgeColor = "#e2e8f0";
-
 // Vivid dark hues — clearly identifiable on a black canvas, readable with white text
-const nodeColorPalette = [
-  "#1e293b", // slate
-  "#1e3a8a", // blue
-  "#0369a1", // sky
-  "#0f766e", // teal
-  "#065f46", // emerald
-  "#3730a3", // indigo
-  "#5b21b6", // violet
-  "#7e22ce", // purple
-  "#9f1239", // rose
-  "#9a3412", // orange
-  "#713f12", // amber
-  "#292524", // stone
-];
+const nodeColorPalette = NODE_COLORS;
 
 const edgeStyle = {
-  stroke: defaultEdgeColor,
+  stroke: DEFAULT_EDGE_COLOR,
   strokeWidth: 1.8,
   strokeLinecap: "round" as const,
 };
 const edgeMarker = {
   type: MarkerType.ArrowClosed,
-  color: defaultEdgeColor,
+  color: DEFAULT_EDGE_COLOR,
   width: 14,
   height: 14,
 };
@@ -189,67 +181,19 @@ const shapePanelItems: ShapePanelItem[] = [
     defaultWidth: 260,
     defaultHeight: 80,
   },
-];
-
-const initialNodes: CanvasNode[] = [
   {
-    id: "client",
-    type: "canvasNode",
-    data: { label: "Client App", color: "#0f172a" },
-    position: { x: 120, y: 80 },
-    width: 260,
-    height: 120,
+    shape: "cylinder",
+    label: "Database",
+    icon: Database,
+    defaultWidth: 200,
+    defaultHeight: 240,
   },
   {
-    id: "gateway",
-    type: "canvasNode",
-    data: { label: "API Gateway", color: "#1e293b" },
-    position: { x: 430, y: 90 },
-    width: 260,
-    height: 120,
-  },
-  {
-    id: "worker",
-    type: "canvasNode",
-    data: { label: "Worker Service", color: "#14532d" },
-    position: { x: 760, y: 230 },
-    width: 260,
-    height: 120,
-  },
-  {
-    id: "database",
-    type: "canvasNode",
-    data: { label: "Database", color: "#7c2d12" },
-    position: { x: 430, y: 300 },
-    width: 260,
-    height: 120,
-  },
-];
-
-const initialEdges: CanvasEdge[] = [
-  {
-    id: "client-gateway",
-    source: "client",
-    target: "gateway",
-    type: "smoothstep",
-    style: edgeStyle,
-    markerEnd: edgeMarker,
-  },
-  {
-    id: "gateway-worker",
-    source: "gateway",
-    target: "worker",
-    type: "smoothstep",
-    style: edgeStyle,
-    markerEnd: edgeMarker,
-  },
-  {
-    id: "gateway-database",
-    source: "gateway",
-    target: "database",
-    type: "smoothstep",
-    style: edgeStyle,
-    markerEnd: edgeMarker,
+    shape: "hexagon",
+    label: "Service",
+    icon: Hexagon,
+    defaultWidth: 220,
+    defaultHeight: 200,
   },
 ];
 
@@ -359,16 +303,15 @@ function CursorWithName({ connectionId }: CursorsCursorProps) {
 }
 
 // ── Shape-specific wrapper styles ──────────────────────────────────
-const shapeClasses: Record<NodeShape, string> = {
+const simpleShapeClasses: Record<"rectangle" | "pill" | "circle", string> = {
   rectangle: "rounded-2xl",
-  diamond: "[clip-path:polygon(50%_0%,100%_50%,50%_100%,0%_50%)]",
   circle: "rounded-full",
   pill: "rounded-full",
 };
 
 // Connection handle shared style — white dot, visible on any node color
 const handleClass =
-  "!h-3 !w-3 !rounded-full !border-2 !border-zinc-900 !bg-white !transition-opacity !duration-150 !opacity-0 group-hover/node:!opacity-100";
+  "!z-20 !h-3 !w-3 !rounded-full !border-2 !border-zinc-900 !bg-white !transition-opacity !duration-150 !opacity-0 group-hover/node:!opacity-100";
 
 function CanvasNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
   const { updateNodeData } = useReactFlow<CanvasNode, CanvasEdge>();
@@ -377,19 +320,110 @@ function CanvasNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
   const hasText =
     typeof data.label === "string" && data.label.trim().length > 0;
   const nodeColor =
-    typeof data.color === "string" ? data.color : defaultNodeColor;
+    typeof data.color === "string" ? data.color : DEFAULT_NODE_COLOR;
   const nodeShape: NodeShape = data.shape ?? "rectangle";
+  const isComplexShape =
+    nodeShape === "diamond" ||
+    nodeShape === "hexagon" ||
+    nodeShape === "cylinder";
+  const borderStroke = selected
+    ? "rgba(255, 255, 255, 0.95)"
+    : "rgba(255, 255, 255, 0.14)";
+  const borderWidth = selected ? 0.7 : 0.6;
+
+  function renderShapeBackground() {
+    if (nodeShape === "diamond") {
+      return (
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible"
+          aria-hidden="true">
+          <polygon
+            points="50,1.5 98.5,50 50,98.5 1.5,50"
+            fill={nodeColor}
+            stroke={borderStroke}
+            strokeWidth={borderWidth}
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      );
+    }
+
+    if (nodeShape === "hexagon") {
+      return (
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible"
+          aria-hidden="true">
+          <polygon
+            points="25,1.5 75,1.5 98.5,50 75,98.5 25,98.5 1.5,50"
+            fill={nodeColor}
+            stroke={borderStroke}
+            strokeWidth={borderWidth}
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      );
+    }
+
+    if (nodeShape === "cylinder") {
+      return (
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible"
+          aria-hidden="true">
+          <path
+            d="M10 16 C10 8, 90 8, 90 16 L90 84 C90 92, 10 92, 10 84 Z"
+            fill={nodeColor}
+            stroke={borderStroke}
+            strokeWidth={borderWidth}
+            vectorEffect="non-scaling-stroke"
+          />
+          <ellipse
+            cx="50"
+            cy="16"
+            rx="40"
+            ry="8"
+            fill="none"
+            stroke={borderStroke}
+            strokeWidth={borderWidth}
+            vectorEffect="non-scaling-stroke"
+          />
+          <path
+            d="M10 84 C10 92, 90 92, 90 84"
+            fill="none"
+            stroke={
+              selected ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.24)"
+            }
+            strokeWidth={selected ? 1.6 : 1.2}
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      );
+    }
+
+    return null;
+  }
 
   return (
     <div
       className={cn(
         // group/node lets handles fade in on any hover within the node
-        "group/node relative flex h-full w-full min-h-[80px] min-w-[80px] items-center justify-center border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-shadow duration-150",
-        shapeClasses[nodeShape],
+        "group/node relative flex h-full w-full min-h-[80px] min-w-[80px] items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-shadow duration-150",
+        !isComplexShape && "border border-white/10",
+        (nodeShape === "rectangle" ||
+          nodeShape === "pill" ||
+          nodeShape === "circle") &&
+          simpleShapeClasses[nodeShape],
         selected &&
           "border-white/50 shadow-[0_8px_32px_rgba(255,255,255,0.10)]",
       )}
-      style={{ backgroundColor: nodeColor }}>
+      style={{ backgroundColor: isComplexShape ? "transparent" : nodeColor }}>
+      {renderShapeBackground()}
+
       {/* ── Color picker toolbar (visible only when selected) ─────────── */}
       <NodeToolbar isVisible={selected} position={Position.Top} offset={14}>
         <div className="nodrag flex items-center gap-1 rounded-xl border border-zinc-700 bg-zinc-950 p-1.5 shadow-2xl">
@@ -449,35 +483,150 @@ function CanvasNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
 
       {/* ── Node body – centered text, double-click to edit ──────────── */}
       <div
-        className="flex w-full flex-col items-center justify-center px-5 py-3"
+        className="relative z-10 flex w-full flex-col items-center justify-center px-5 py-3"
         onDoubleClick={(e) => {
           e.stopPropagation();
-          setIsEditing(true);
+          if (!isEditing) setIsEditing(true);
         }}>
-        {isEditing ? (
+        {/*
+         * The <p> is always in the DOM so the container never changes height
+         * (preventing the vertical jump). It becomes invisible while editing
+         * and the <textarea> is absolutely positioned on top of it.
+         */}
+        <p
+          aria-hidden={isEditing}
+          className={cn(
+            "w-full select-none break-words text-center text-sm leading-snug",
+            hasText ? "text-zinc-100" : "text-zinc-500",
+            isEditing && "invisible",
+          )}>
+          {hasText && data.label}
+        </p>
+
+        {isEditing && (
           <textarea
             value={data.label}
             autoFocus
-            rows={3}
             onChange={(e) => updateNodeData(id, { label: e.target.value })}
             onBlur={() => setIsEditing(false)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setIsEditing(false);
             }}
-            className="nodrag nopan nowheel w-full resize-none bg-transparent text-center text-sm font-medium text-zinc-100 outline-none placeholder:text-zinc-500"
-            placeholder="Add text…"
+            // inset-0 + matching padding makes this overlay pixel-perfect
+            className="nodrag nopan nowheel absolute inset-0 resize-none bg-transparent px-5 py-3 text-center text-sm leading-snug text-zinc-100 outline-none placeholder:text-zinc-500"
+            placeholder="Add text"
           />
-        ) : (
-          <p
-            className={cn(
-              "w-full select-none break-words text-center text-sm font-semibold leading-snug",
-              hasText ? "text-zinc-100" : "text-zinc-500",
-            )}>
-            {hasText ? data.label : "Add Text"}
-          </p>
         )}
       </div>
     </div>
+  );
+}
+
+// ── Custom edge – selection highlight + editable midpoint label ─────
+function CanvasEdgeView({
+  id,
+  sourceX,
+  sourceY,
+  sourcePosition,
+  targetX,
+  targetY,
+  targetPosition,
+  data,
+  selected,
+  markerEnd,
+  style,
+}: EdgeProps) {
+  const { updateEdgeData } = useReactFlow<CanvasNode, CanvasEdge>();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [isHovered, setIsHovered] = useState(false);
+
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  const label = typeof data?.label === "string" ? data.label : "";
+  // Active = hovered or selected — both make the edge fully opaque white
+  const isActive = selected || isHovered;
+  const strokeColor = isActive ? "#e2e8f0" : "rgba(226, 232, 240, 0.42)";
+  const strokeWidth = isActive ? 2.2 : 1.8;
+
+  function handleLabelDoubleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    setDraft(label);
+    setIsEditing(true);
+  }
+
+  function commitLabel() {
+    updateEdgeData(id, { label: draft.trim() });
+    setIsEditing(false);
+  }
+
+  return (
+    <>
+      <BaseEdge
+        path={edgePath}
+        style={{ ...style, stroke: strokeColor, strokeWidth }}
+        markerEnd={markerEnd}
+        interactionWidth={20}
+      />
+
+      {/* Thick transparent overlay — hover highlight + double-click to edit label */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        className="cursor-pointer"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onDoubleClick={handleLabelDoubleClick}
+      />
+
+      <EdgeLabelRenderer>
+        <div
+          className="pointer-events-auto absolute nodrag nopan"
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+          }}>
+          {isEditing ? (
+            <input
+              value={draft}
+              autoFocus
+              // size grows with content so long labels stay fully visible while typing
+              size={Math.max(10, draft.length + 2)}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitLabel}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") {
+                  e.preventDefault();
+                  commitLabel();
+                }
+              }}
+              className="nodrag nopan nowheel rounded-md bg-zinc-900 px-2 py-0.5 text-center text-xs text-zinc-100 shadow-lg outline-none ring-1 ring-zinc-500 placeholder:text-zinc-500"
+              placeholder="Add label"
+            />
+          ) : label ? (
+            <span
+              className="cursor-default rounded-md border border-zinc-700/60 bg-zinc-900/90 px-2 py-0.5 text-[11px] text-zinc-300 shadow backdrop-blur-sm"
+              onDoubleClick={handleLabelDoubleClick}>
+              {label}
+            </span>
+          ) : isActive ? (
+            <span
+              className="cursor-default rounded px-1.5 py-0.5 text-[10px] text-zinc-500"
+              onDoubleClick={handleLabelDoubleClick}>
+              Double-click to label
+            </span>
+          ) : null}
+        </div>
+      </EdgeLabelRenderer>
+    </>
   );
 }
 
@@ -545,11 +694,16 @@ function EditorWorkspace({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nodeIdCounter = useRef(0);
 
+  const undo = useUndo();
+  const redo = useRedo();
+  const canUndo = useCanUndo();
+  const canRedo = useCanRedo();
+
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, onDelete } =
     useLiveblocksFlow<CanvasNode, CanvasEdge>({
       suspense: true,
-      nodes: { initial: initialNodes },
-      edges: { initial: initialEdges },
+      nodes: { initial: [] },
+      edges: { initial: [] },
     });
 
   const canvasNodes = useMemo(() => nodes ?? [], [nodes]);
@@ -558,6 +712,16 @@ function EditorWorkspace({
   const nodeTypes = useMemo(
     () => ({
       canvasNode: CanvasNodeView,
+    }),
+    [],
+  );
+
+  // Maps both new edges ("canvasEdge") and any existing "smoothstep" edges
+  // already persisted in Liveblocks storage to the same custom renderer.
+  const edgeTypes = useMemo(
+    () => ({
+      canvasEdge: CanvasEdgeView,
+      smoothstep: CanvasEdgeView,
     }),
     [],
   );
@@ -602,6 +766,51 @@ function EditorWorkspace({
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [canvasNodes, canvasEdges, saveCanvas]);
+
+  // Global keyboard shortcuts — skipped when focus is inside an editable element
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      const isMeta = e.metaKey || e.ctrlKey;
+
+      if (!isMeta && (e.key === "+" || e.key === "=")) {
+        e.preventDefault();
+        flow?.zoomIn({ duration: 150 });
+        return;
+      }
+
+      if (!isMeta && e.key === "-") {
+        e.preventDefault();
+        flow?.zoomOut({ duration: 150 });
+        return;
+      }
+
+      if (isMeta && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      if (
+        (isMeta && e.shiftKey && e.key.toLowerCase() === "z") ||
+        (isMeta && e.key.toLowerCase() === "y")
+      ) {
+        e.preventDefault();
+        redo();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [flow, undo, redo]);
 
   async function handleCopyLink() {
     try {
@@ -752,7 +961,7 @@ function EditorWorkspace({
         id: `${shape}-${Date.now()}-${nodeIdCounter.current}`,
         type: "canvasNode",
         position,
-        data: { label: "", color: defaultNodeColor, shape },
+        data: { label: "", color: DEFAULT_NODE_COLOR, shape },
         width: defaultWidth,
         height: defaultHeight,
       };
@@ -1016,7 +1225,8 @@ function EditorWorkspace({
           />
 
           <ReactFlow<CanvasNode, CanvasEdge>
-            fitView
+            // fitView
+            defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
             connectionMode={ConnectionMode.Loose}
             onInit={(instance) =>
               setFlow(instance as ReactFlowInstance<CanvasNode, CanvasEdge>)
@@ -1024,6 +1234,7 @@ function EditorWorkspace({
             nodes={canvasNodes}
             edges={canvasEdges}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
@@ -1031,7 +1242,7 @@ function EditorWorkspace({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             defaultEdgeOptions={{
-              type: "smoothstep",
+              type: "canvasEdge",
               style: edgeStyle,
               markerEnd: edgeMarker,
             }}
@@ -1050,7 +1261,7 @@ function EditorWorkspace({
                 const color =
                   typeof node.data?.color === "string"
                     ? node.data.color
-                    : defaultNodeColor;
+                    : DEFAULT_NODE_COLOR;
 
                 return color;
               }}
@@ -1060,34 +1271,64 @@ function EditorWorkspace({
 
           <NodePanel />
 
-          <div className="absolute bottom-16 left-4 z-20 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/90 p-1.5 shadow-lg shadow-black/30">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-md"
-              onClick={() => flow?.zoomOut({ duration: 150 })}
-              aria-label="Zoom out">
-              <Minus className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-md"
-              onClick={() => flow?.fitView({ duration: 200, padding: 0.2 })}
-              aria-label="Fit view">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-md"
-              onClick={() => flow?.zoomIn({ duration: 150 })}
-              aria-label="Zoom in">
-              <Plus className="h-4 w-4" />
-            </Button>
+          <div className="absolute bottom-16 left-4 z-20 flex items-center rounded-lg border border-zinc-800 bg-zinc-900/90 shadow-lg shadow-black/30">
+            {/* Zoom controls */}
+            <div className="flex items-center gap-0.5 p-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-md"
+                onClick={() => flow?.zoomOut({ duration: 150 })}
+                aria-label="Zoom out (-)">
+                <Minus className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-md"
+                onClick={() => flow?.fitView({ duration: 200, padding: 0.15 })}
+                aria-label="Fit view">
+                <Maximize2 className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-md"
+                onClick={() => flow?.zoomIn({ duration: 150 })}
+                aria-label="Zoom in (+)">
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Divider */}
+            <div className="my-1.5 w-px self-stretch bg-zinc-700" />
+
+            {/* Undo / Redo */}
+            <div className="flex items-center gap-0.5 p-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-md disabled:opacity-30"
+                onClick={undo}
+                disabled={!canUndo}
+                aria-label="Undo (⌘Z)">
+                <Undo2 className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-md disabled:opacity-30"
+                onClick={redo}
+                disabled={!canRedo}
+                aria-label="Redo (⌘⇧Z)">
+                <Redo2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>

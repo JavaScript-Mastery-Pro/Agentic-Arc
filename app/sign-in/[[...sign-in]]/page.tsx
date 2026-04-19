@@ -6,7 +6,7 @@ export default function SignInPage() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.14),_transparent_45%),radial-gradient(circle_at_bottom,_rgba(16,185,129,0.1),_transparent_45%)]" />
       <div className="relative">
         <SignIn
-          forceRedirectUrl="/dashboard"
+          forceRedirectUrl="/editor"
           signUpUrl="/sign-up"
           appearance={{
             elements: {

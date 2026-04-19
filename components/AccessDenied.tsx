@@ -19,9 +19,9 @@ export function AccessDenied() {
         </p>
 
         <div className="mt-8">
-          <Link href="/dashboard">
+          <Link href="/editor">
             <Button type="button" variant="secondary" className="rounded-xl">
-              Go back to dashboard
+              Go to editor
             </Button>
           </Link>
         </div>

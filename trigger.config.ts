@@ -3,7 +3,7 @@ import { defineConfig } from "@trigger.dev/sdk";
 export default defineConfig({
   project: "proj_tviwtamtthknpotvltfo",
   dirs: ["./trigger"],
-  maxDuration: 5 * 60 * 1000, // 5 minutes
+  maxDuration: 5 * 60, // 5 minutes in seconds
   retries: {
     enabledInDev: false,
 

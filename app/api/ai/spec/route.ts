@@ -2,11 +2,13 @@ import { tasks } from "@trigger.dev/sdk";
 import { NextResponse } from "next/server";
 
 import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
+import prisma from "@/lib/prisma";
 import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
 
 interface GenerateSpecBody {
   roomId?: string;
-  projectId?: string;
+  // Note: client-supplied projectId is intentionally ignored.
+  // projectId is always derived from the access-checked roomId.
   chatHistory?: { role: "user" | "assistant"; content: string }[];
   nodes?: unknown[];
   edges?: unknown[];
@@ -34,16 +36,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // projectId is always derived from the access-checked roomId, never from
+  // the client-supplied body, to prevent cross-project authorization drift.
   const handle = await tasks.trigger<typeof generateSpecGemini>(
     "generate-spec-gemini",
     {
-      projectId: body.projectId ?? body.roomId,
+      projectId: body.roomId,
       roomId: body.roomId,
       chatHistory: body.chatHistory ?? [],
       nodes: body.nodes as Record<string, unknown>[],
       edges: body.edges as Record<string, unknown>[],
     },
   );
+
+  // Persist run ownership so token endpoints can verify access.
+  await prisma.taskRun.create({
+    data: {
+      runId: handle.id,
+      projectId: body.roomId,
+      userId: identity.userId,
+    },
+  });
 
   return NextResponse.json({
     runId: handle.id,

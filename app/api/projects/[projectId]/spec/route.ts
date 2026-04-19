@@ -57,19 +57,29 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const identity = await getAuthIdentity();
-
-  if (!identity) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const { projectId } = await context.params;
   const body = (await request.json()) as SaveSpecBody;
 
-  const hasAccess = await canAccessProject(projectId, identity);
+  // Allow internal calls from Trigger.dev tasks using a shared secret.
+  // Set INTERNAL_API_SECRET in both Next.js and Trigger.dev environment variables.
+  const internalSecret = request.headers.get("x-internal-secret");
+  const isInternalRequest =
+    internalSecret != null &&
+    process.env.INTERNAL_API_SECRET != null &&
+    internalSecret === process.env.INTERNAL_API_SECRET;
 
-  if (!hasAccess) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!isInternalRequest) {
+    const identity = await getAuthIdentity();
+
+    if (!identity) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const hasAccess = await canAccessProject(projectId, identity);
+
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   if (!body.specContent) {
@@ -79,25 +89,18 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
-  // Create a DB record first to get the ID for the filename
-  const specRecord = await prisma.projectSpec.create({
-    data: {
-      projectId,
-      filePath: "", // placeholder until we know the ID
-    },
-  });
-
+  // Atomic persistence: pre-compute canonical ID and path, write the file,
+  // then create the DB record in a single step with the real path.
+  // This eliminates the empty-placeholder pattern that left dangling records.
+  const specId = crypto.randomUUID();
   const projectSpecDir = join(SPEC_DIR, projectId);
-  await mkdir(projectSpecDir, { recursive: true });
+  const filePath = join(projectSpecDir, `${specId}.md`);
 
-  const fileName = `${specRecord.id}.md`;
-  const filePath = join(projectSpecDir, fileName);
+  await mkdir(projectSpecDir, { recursive: true });
   await writeFile(filePath, body.specContent, "utf-8");
 
-  // Update the record with the real file path
-  await prisma.projectSpec.update({
-    where: { id: specRecord.id },
-    data: { filePath },
+  const specRecord = await prisma.projectSpec.create({
+    data: { id: specId, projectId, filePath },
   });
 
   return NextResponse.json({ specId: specRecord.id, ok: true });

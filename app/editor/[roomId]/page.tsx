@@ -4,6 +4,7 @@ import { AccessDenied } from "@/components/AccessDenied";
 import { Editor } from "@/components/editor/editor";
 import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
+import { getProjectListForUser } from "@/lib/project-queries";
 
 interface EditorPageProps {
   params: Promise<{
@@ -27,34 +28,13 @@ export default async function EditorPage({ params }: EditorPageProps) {
     return <AccessDenied />;
   }
 
-  const myProjects = await prisma.project.findMany({
-    where: { creatorId: identity.userId },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, name: true },
-  });
-
-  const sharedProjects = identity.email
-    ? await prisma.project.findMany({
-        where: {
-          creatorId: { not: identity.userId },
-          collaborators: {
-            some: {
-              collaboratorEmail: {
-                equals: identity.email,
-                mode: "insensitive",
-              },
-            },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, name: true },
-      })
-    : [];
-
-  const currentProject = await prisma.project.findUnique({
-    where: { id: roomId },
-    select: { creatorId: true },
-  });
+  const [{ myProjects, sharedProjects }, currentProject] = await Promise.all([
+    getProjectListForUser(identity),
+    prisma.project.findUnique({
+      where: { id: roomId },
+      select: { creatorId: true },
+    }),
+  ]);
 
   return (
     <Editor

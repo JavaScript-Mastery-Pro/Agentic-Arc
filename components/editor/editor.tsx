@@ -36,9 +36,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import {
-  Check,
   Circle,
-  Copy,
   Database,
   Diamond,
   Hexagon,
@@ -55,18 +53,8 @@ import {
   Save,
   Sparkles,
   Undo2,
-  Users,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import {
-  type DragEvent,
-  startTransition,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type DragEvent, useMemo, useRef, useState } from "react";
 
 import { EditorErrorBoundary } from "@/components/editor/error-boundary";
 import { AiChatSidebar } from "@/components/editor/ai-chat-sidebar";
@@ -93,18 +81,19 @@ import {
   type NodeShape,
 } from "@/types/canvas";
 import { cn } from "@/lib/utils";
+import { ShareDialog } from "@/components/editor/ShareDialog";
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import {
+  slugifyProjectName,
+  useProjectActions,
+} from "@/hooks/useProjectActions";
 
 interface EditorProps {
   roomId: string;
   myProjects: EditorProject[];
   sharedProjects: EditorProject[];
   canManageSharing: boolean;
-}
-
-interface CollaboratorRecord {
-  id: string;
-  collaboratorEmail: string;
-  createdAt: string;
 }
 
 interface PresenceUserInfo {
@@ -214,16 +203,6 @@ function getInitials(name: string) {
       .map((segment) => segment[0]?.toUpperCase() ?? "")
       .join("") || "A"
   );
-}
-
-function slugifyProjectName(name: string) {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return slug || "untitled-project";
 }
 
 function PresenceAvatar({ user }: { user: PresenceUserInfo }) {
@@ -663,35 +642,43 @@ function NodePanel() {
   );
 }
 
-const AUTOSAVE_DELAY_MS = 3000;
-
 function EditorWorkspace({
   roomId,
   myProjects,
   sharedProjects,
   canManageSharing,
 }: EditorProps) {
-  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [collaborators, setCollaborators] = useState<CollaboratorRecord[]>([]);
-  const [isInviting, setIsInviting] = useState(false);
-  const [isLoadingCollaborators, setIsLoadingCollaborators] = useState(false);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const [isLinkCopied, setIsLinkCopied] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [projectName, setProjectName] = useState("");
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
-    "idle",
-  );
+
+  const {
+    isCreateDialogOpen,
+    setIsCreateDialogOpen,
+    projectName,
+    setProjectName,
+    roomSuffix,
+    isCreating,
+    handleCreateProject,
+    renameTarget,
+    setRenameTarget,
+    renameName,
+    setRenameName,
+    isRenaming,
+    handleConfirmRename,
+    deleteTarget,
+    setDeleteTarget,
+    isDeleting,
+    handleConfirmDelete,
+  } = useProjectActions({
+    currentRoomId: roomId,
+    onAfterCreate: () => setIsSidebarOpen(false),
+  });
+
   const [flow, setFlow] = useState<ReactFlowInstance<
     CanvasNode,
     CanvasEdge
   > | null>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nodeIdCounter = useRef(0);
 
   const undo = useUndo();
@@ -726,208 +713,12 @@ function EditorWorkspace({
     [],
   );
 
-  // ── Persist canvas to disk via API ────────────────────────────────
-  const saveCanvas = useCallback(async () => {
-    if (!canvasNodes.length && !canvasEdges.length) return;
-
-    setSaveStatus("saving");
-
-    try {
-      const response = await fetch(
-        `/api/projects/${encodeURIComponent(roomId)}/canvas`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ nodes: canvasNodes, edges: canvasEdges }),
-        },
-      );
-
-      if (response.ok) {
-        setSaveStatus("saved");
-        window.setTimeout(() => setSaveStatus("idle"), 2000);
-      } else {
-        console.error("Failed to save canvas", await response.text());
-        setSaveStatus("idle");
-      }
-    } catch (error) {
-      console.error("Failed to save canvas", error);
-      setSaveStatus("idle");
-    }
-  }, [roomId, canvasNodes, canvasEdges]);
-
-  // Auto-save debounce: schedule a save whenever nodes/edges change
-  useEffect(() => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      saveCanvas();
-    }, AUTOSAVE_DELAY_MS);
-
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, [canvasNodes, canvasEdges, saveCanvas]);
-
-  // Global keyboard shortcuts — skipped when focus is inside an editable element
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
-        return;
-      }
-
-      const isMeta = e.metaKey || e.ctrlKey;
-
-      if (!isMeta && (e.key === "+" || e.key === "=")) {
-        e.preventDefault();
-        flow?.zoomIn({ duration: 150 });
-        return;
-      }
-
-      if (!isMeta && e.key === "-") {
-        e.preventDefault();
-        flow?.zoomOut({ duration: 150 });
-        return;
-      }
-
-      if (isMeta && !e.shiftKey && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        undo();
-        return;
-      }
-
-      if (
-        (isMeta && e.shiftKey && e.key.toLowerCase() === "z") ||
-        (isMeta && e.key.toLowerCase() === "y")
-      ) {
-        e.preventDefault();
-        redo();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [flow, undo, redo]);
-
-  async function handleCopyLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setIsLinkCopied(true);
-      window.setTimeout(() => setIsLinkCopied(false), 1500);
-    } catch (error) {
-      console.error("Failed to copy room link", error);
-    }
-  }
-
-  const loadCollaborators = useCallback(async () => {
-    if (!canManageSharing) return;
-
-    setIsLoadingCollaborators(true);
-    setShareError(null);
-
-    try {
-      const response = await fetch(
-        `/api/projects/${encodeURIComponent(roomId)}/collaborators`,
-      );
-
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        setShareError(data.error ?? "Failed to load collaborators.");
-        setCollaborators([]);
-        return;
-      }
-
-      const data = (await response.json()) as {
-        collaborators: CollaboratorRecord[];
-      };
-
-      setCollaborators(data.collaborators);
-    } catch {
-      setShareError("Failed to load collaborators.");
-      setCollaborators([]);
-    } finally {
-      setIsLoadingCollaborators(false);
-    }
-  }, [canManageSharing, roomId]);
-
-  useEffect(() => {
-    if (isShareDialogOpen) {
-      loadCollaborators();
-    }
-  }, [isShareDialogOpen, loadCollaborators]);
-
-  async function handleInviteCollaborator() {
-    const email = inviteEmail.trim();
-
-    if (!email || !canManageSharing) {
-      return;
-    }
-
-    setIsInviting(true);
-    setShareError(null);
-
-    try {
-      const response = await fetch(
-        `/api/projects/${encodeURIComponent(roomId)}/collaborators`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-        },
-      );
-
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        setShareError(data.error ?? "Failed to invite collaborator.");
-        return;
-      }
-
-      setInviteEmail("");
-      await loadCollaborators();
-    } catch {
-      setShareError("Failed to invite collaborator.");
-    } finally {
-      setIsInviting(false);
-    }
-  }
-
-  async function handleCreateProject() {
-    const nextRoomId = slugifyProjectName(projectName);
-    const name = projectName.trim();
-
-    if (!name) return;
-
-    setIsCreating(true);
-
-    try {
-      const response = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, roomId: nextRoomId }),
-      });
-
-      if (!response.ok) {
-        console.error("Failed to create project", await response.text());
-        return;
-      }
-
-      setIsCreateDialogOpen(false);
-      setProjectName("");
-      setIsSidebarOpen(false);
-
-      startTransition(() => {
-        router.push(`/editor/${encodeURIComponent(nextRoomId)}`);
-        router.refresh();
-      });
-    } catch (error) {
-      console.error("Failed to create project", error);
-    } finally {
-      setIsCreating(false);
-    }
-  }
+  const { saveStatus, saveCanvas } = useAutoSave(
+    roomId,
+    canvasNodes,
+    canvasEdges,
+  );
+  useKeyboardShortcuts(flow, undo, redo);
 
   function handleResetView() {
     flow?.fitView({ duration: 300, padding: 0.2 });
@@ -974,106 +765,12 @@ function EditorWorkspace({
 
   return (
     <div className="relative h-screen overflow-hidden bg-zinc-950 text-zinc-100">
-      <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-cyan-300" />
-              Share project
-            </DialogTitle>
-            <DialogDescription>
-              Invite collaborators by email and share the room link.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {canManageSharing ? (
-              <div className="flex items-center gap-2">
-                <Input
-                  value={inviteEmail}
-                  onChange={(event) => setInviteEmail(event.target.value)}
-                  placeholder="teammate@company.com"
-                  type="email"
-                />
-                <Button
-                  type="button"
-                  onClick={handleInviteCollaborator}
-                  disabled={!inviteEmail.trim() || isInviting}>
-                  {isInviting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Inviting...
-                    </>
-                  ) : (
-                    "Invite"
-                  )}
-                </Button>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-xs text-zinc-400">
-                Only the project creator can invite collaborators.
-              </div>
-            )}
-
-            {shareError ? (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                {shareError}
-              </div>
-            ) : null}
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                Invited collaborators
-              </p>
-
-              <div className="max-h-44 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950/60 p-2">
-                {isLoadingCollaborators ? (
-                  <div className="flex items-center gap-2 px-2 py-3 text-xs text-zinc-400">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Loading invites...
-                  </div>
-                ) : collaborators.length ? (
-                  <div className="space-y-1.5">
-                    {collaborators.map((collaborator) => (
-                      <div
-                        key={collaborator.id}
-                        className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-200">
-                        {collaborator.collaboratorEmail}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="px-2 py-3 text-xs text-zinc-500">
-                    No invited collaborators yet.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2">
-              <p className="truncate pr-3 text-xs text-zinc-400">{`/editor/${roomId}`}</p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleCopyLink}
-                className="rounded-lg">
-                {isLinkCopied ? (
-                  <>
-                    <Check className="h-3.5 w-3.5" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3.5 w-3.5" />
-                    Copy link
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ShareDialog
+        roomId={roomId}
+        canManageSharing={canManageSharing}
+        isOpen={isShareDialogOpen}
+        onOpenChange={setIsShareDialogOpen}
+      />
 
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
         <DialogContent>
@@ -1093,7 +790,8 @@ function EditorWorkspace({
               autoFocus
             />
             <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-sm text-zinc-400">
-              /editor/{slugifyProjectName(projectName || "untitled project")}
+              /editor/{slugifyProjectName(projectName || "untitled-project")}-
+              {roomSuffix}
             </div>
           </div>
 
@@ -1121,23 +819,87 @@ function EditorWorkspace({
         </DialogContent>
       </Dialog>
 
-      <ProjectSidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        onCreateProject={() => setIsCreateDialogOpen(true)}
-        roomId={roomId}
-        myProjects={myProjects}
-        sharedProjects={sharedProjects}
-      />
+      {/* Rename project dialog */}
+      <Dialog
+        open={!!renameTarget}
+        onOpenChange={(open) => !open && setRenameTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename project</DialogTitle>
+            <DialogDescription>
+              Enter a new name for &quot;{renameTarget?.name}&quot;.
+            </DialogDescription>
+          </DialogHeader>
 
-      {isSidebarOpen ? (
-        <button
-          type="button"
-          aria-label="Close project sidebar backdrop"
-          onClick={() => setIsSidebarOpen(false)}
-          className="absolute inset-0 z-30 bg-zinc-950/35"
-        />
-      ) : null}
+          <Input
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            placeholder="New project name"
+            autoFocus
+            onKeyDown={(e) => e.key === "Enter" && handleConfirmRename()}
+          />
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRenameTarget(null)}
+              disabled={isRenaming}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmRename}
+              disabled={!renameName.trim() || isRenaming}>
+              {isRenaming ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Saving…
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete project dialog */}
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete project</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &quot;{deleteTarget?.name}&quot;?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="border border-red-800 shadow-none bg-red-950/40 text-red-400 hover:border-red-700 hover:bg-red-900/40 hover:text-red-300"
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}>
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Deleting…
+                </>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="relative z-10 flex h-full min-w-0 flex-col">
         <header className="relative flex h-14 items-center justify-between border-b border-zinc-800 bg-zinc-950/95 px-4">
@@ -1216,12 +978,32 @@ function EditorWorkspace({
         <div className="relative min-h-0 flex-1 bg-zinc-950">
           <CanvasPresence />
 
+          <ProjectSidebar
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
+            onCreateProject={() => setIsCreateDialogOpen(true)}
+            onRenameProject={(id, name) => setRenameTarget({ id, name })}
+            onDeleteProject={(id, name) => setDeleteTarget({ id, name })}
+            roomId={roomId}
+            myProjects={myProjects}
+            sharedProjects={sharedProjects}
+          />
+
+          {isSidebarOpen ? (
+            <button
+              type="button"
+              aria-label="Close project sidebar backdrop"
+              onClick={() => setIsSidebarOpen(false)}
+              className="absolute inset-0 z-30 bg-zinc-950/35"
+            />
+          ) : null}
+
           <AiChatSidebar
             roomId={roomId}
             isOpen={isAiChatOpen}
             onClose={() => setIsAiChatOpen(false)}
-            nodes={canvasNodes as unknown as Record<string, unknown>[]}
-            edges={canvasEdges as unknown as Record<string, unknown>[]}
+            nodes={canvasNodes}
+            edges={canvasEdges}
           />
 
           <ReactFlow<CanvasNode, CanvasEdge>

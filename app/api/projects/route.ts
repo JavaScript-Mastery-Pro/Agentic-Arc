@@ -66,13 +66,24 @@ export async function POST(request: Request) {
     );
   }
 
-  // Prevent duplicate projects with the same roomId for this user
-  const existing = await prisma.project.findFirst({
-    where: { id: roomId, creatorId: userId },
+  // ✅ FIX: Check if THIS ID exists ANYWHERE in the database
+  const existing = await prisma.project.findUnique({
+    where: { id: roomId },
   });
 
   if (existing) {
-    return NextResponse.json(existing);
+    // If it exists and belongs to this user, just return it (idempotency)
+    if (existing.creatorId === userId) {
+      return NextResponse.json(existing);
+    }
+    // If it belongs to someone else, we cannot use this ID!
+    return NextResponse.json(
+      {
+        error:
+          "A project with this URL already exists. Please try another name.",
+      },
+      { status: 409 },
+    );
   }
 
   const project = await prisma.project.create({
@@ -85,3 +96,41 @@ export async function POST(request: Request) {
 
   return NextResponse.json(project, { status: 201 });
 }
+
+// export async function POST(request: Request) {
+//   const { userId } = await auth();
+
+//   if (!userId) {
+//     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+//   }
+
+//   const body = (await request.json()) as CreateProjectBody;
+//   const name = body.name?.trim();
+//   const roomId = body.roomId?.trim();
+
+//   if (!name || !roomId) {
+//     return NextResponse.json(
+//       { error: "name and roomId are required." },
+//       { status: 400 },
+//     );
+//   }
+
+//   // Prevent duplicate projects with the same roomId for this user
+//   const existing = await prisma.project.findFirst({
+//     where: { id: roomId, creatorId: userId },
+//   });
+
+//   if (existing) {
+//     return NextResponse.json(existing);
+//   }
+
+//   const project = await prisma.project.create({
+//     data: {
+//       id: roomId,
+//       creatorId: userId,
+//       name,
+//     },
+//   });
+
+//   return NextResponse.json(project, { status: 201 });
+// }

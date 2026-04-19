@@ -2,6 +2,7 @@ import { tasks } from "@trigger.dev/sdk";
 import { NextResponse } from "next/server";
 
 import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
+import prisma from "@/lib/prisma";
 import type { designAgent } from "@/trigger/design-agent";
 
 interface DesignRequestBody {
@@ -36,6 +37,15 @@ export async function POST(request: Request) {
   const handle = await tasks.trigger<typeof designAgent>("design-agent", {
     roomId,
     prompt,
+  });
+
+  // Persist run ownership so token endpoints can verify access.
+  await prisma.taskRun.create({
+    data: {
+      runId: handle.id,
+      projectId: roomId,
+      userId: identity.userId,
+    },
   });
 
   return NextResponse.json({ runId: handle.id, status: "triggered" });

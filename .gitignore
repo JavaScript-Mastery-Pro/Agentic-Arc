@@ -44,3 +44,5 @@ next-env.d.ts
 
 # canvas and spec data files (saved to disk at runtime)
 /data
+
+/docs

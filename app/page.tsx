@@ -122,91 +122,42 @@ export default async function Home() {
       </nav>
 
       {/* ── Hero ── */}
-      <section className="relative z-10 mx-auto max-w-5xl px-6 pb-24 pt-20 text-center sm:pt-32">
-        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/8 px-3.5 py-1.5 text-xs font-medium text-cyan-300">
-          <Sparkles className="h-3.5 w-3.5" />
-          AI-powered collaborative diagramming
-        </div>
-
-        <h1 className="mx-auto max-w-3xl text-5xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-6xl lg:text-7xl">
-          Ghost Arc —{" "}
-          <span className="bg-gradient-to-r from-cyan-400 to-indigo-400 bg-clip-text text-transparent">
-            build systems.
-          </span>
-        </h1>
-
-        <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-zinc-400">
-          Agentic Arc combines real-time collaborative diagramming with an AI
-          agent that designs system architecture from a single sentence — then
-          generates a full technical spec.
-        </p>
-
-        <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          {isSignedIn ? (
-            <Link
-              href="/editor"
-              className="inline-flex h-12 items-center gap-2 rounded-xl border border-zinc-700 px-7 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800/60">
-              <MousePointerClick className="h-4 w-4" />
-              Open the editor
-            </Link>
-          ) : (
-            <Link
-              href="/sign-up"
-              className="inline-flex h-12 items-center gap-2 rounded-xl bg-cyan-500 px-7 text-sm font-semibold text-zinc-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400">
-              Start building free
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          )}
-        </div>
-      </section>
-
-      {/* ── Canvas preview ── */}
-      <section className="relative z-10 mx-auto max-w-5xl px-6 pb-24">
-        <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow-2xl shadow-black/40">
-          {/* Fake window chrome */}
-          <div className="flex items-center gap-1.5 border-b border-zinc-800 px-4 py-3">
-            <span className="h-3 w-3 rounded-full bg-zinc-700" />
-            <span className="h-3 w-3 rounded-full bg-zinc-700" />
-            <span className="h-3 w-3 rounded-full bg-zinc-700" />
-            <span className="ml-3 text-xs text-zinc-500">
-              /editor/my-system-design
-            </span>
+      <section className="relative z-10 flex min-h-[calc(100svh-57px)] flex-col items-center justify-center px-6 pb-16 pt-16 text-center">
+        <div className="mx-auto w-full max-w-5xl">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/8 px-3.5 py-1.5 text-xs font-medium text-cyan-300">
+            <Sparkles className="h-3.5 w-3.5" />
+            AI-powered collaborative diagramming
           </div>
 
-          {/* Canvas mockup */}
-          <div className="relative h-72 overflow-hidden bg-zinc-950 sm:h-96">
-            <div
-              className="absolute inset-0 opacity-30"
-              style={{
-                backgroundImage:
-                  "radial-gradient(circle, #2f2f35 1px, transparent 1px)",
-                backgroundSize: "20px 20px",
-              }}
-            />
+          <h1 className="mx-auto max-w-3xl text-5xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-6xl lg:text-7xl">
+            Ghost Arc —{" "}
+            <span className="bg-gradient-to-r from-cyan-400 to-indigo-400 bg-clip-text text-transparent">
+              build systems.
+            </span>
+          </h1>
 
-            {/* Nodes */}
-            {[
-              { label: "Client App", color: "#0f766e", x: "8%", y: "20%" },
-              { label: "API Gateway", color: "#1e3a8a", x: "36%", y: "20%" },
-              { label: "Auth Service", color: "#3730a3", x: "64%", y: "8%" },
-              { label: "Worker", color: "#065f46", x: "64%", y: "50%" },
-              { label: "Database", color: "#7c2d12", x: "82%", y: "30%" },
-            ].map((node) => (
-              <div
-                key={node.label}
-                className="absolute flex items-center justify-center rounded-2xl border border-white/10 px-4 py-3 text-xs font-medium text-zinc-100 shadow-lg"
-                style={{
-                  backgroundColor: node.color,
-                  left: node.x,
-                  top: node.y,
-                  minWidth: 110,
-                }}>
-                {node.label}
-              </div>
-            ))}
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-zinc-400">
+            Ghost Arc combines real-time collaborative diagramming with an AI
+            agent that designs system architecture from a single sentence — then
+            generates a full technical spec.
+          </p>
 
-            {/* Gradient fade at the bottom */}
-            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-zinc-900/60 to-transparent" />
+          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            {isSignedIn ? (
+              <Link
+                href="/editor"
+                className="inline-flex h-12 items-center gap-2 rounded-xl border border-zinc-700 px-7 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800/60">
+                <MousePointerClick className="h-4 w-4" />
+                Open the editor
+              </Link>
+            ) : (
+              <Link
+                href="/sign-up"
+                className="inline-flex h-12 items-center gap-2 rounded-xl bg-cyan-500 px-7 text-sm font-semibold text-zinc-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400">
+                Start building free
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            )}
           </div>
         </div>
       </section>
@@ -221,8 +172,8 @@ export default async function Home() {
             Diagram faster, together.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-zinc-400">
-            From the first node to the finished spec, Agentic Arc keeps your
-            whole team in sync — with AI doing the heavy lifting.
+            From the first node to the finished spec, Ghost Arc keeps your whole
+            team in sync — with AI doing the heavy lifting.
           </p>
         </div>
 

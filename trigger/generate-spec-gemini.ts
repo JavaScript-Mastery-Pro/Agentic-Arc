@@ -123,14 +123,53 @@ Generate a comprehensive technical specification for this system.`,
 
     await metadata.set("progress", 80);
 
-    // ── Step 4: Return spec content for the caller to persist ─────
     const specContent = result.text;
+
+    // ── Step 4: Persist spec via the app API ──────────────────────
+    // The task calls the Next.js spec endpoint with a shared secret so that
+    // the spec is saved even if the originating client disconnects.
+    // Required env vars (set in both Next.js and Trigger.dev):
+    //   APP_URL             — e.g. https://your-app.com (no trailing slash)
+    //   INTERNAL_API_SECRET — a long random secret shared between both sides
+    // APP_URL falls back to localhost so the task works even when the
+    // Trigger.dev CLI does not forward .env.local to the worker process.
+    const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+    const internalSecret = process.env.INTERNAL_API_SECRET;
+
+    if (!internalSecret)
+      throw new Error(
+        "INTERNAL_API_SECRET env var is required. Add it to .env.local (Next.js) and to the Trigger.dev environment variables.",
+      );
+
+    await metadata.set("progress", 90);
+
+    const saveRes = await fetch(
+      `${appUrl}/api/projects/${parsed.projectId}/spec`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-internal-secret": internalSecret,
+        },
+        body: JSON.stringify({ specContent }),
+      },
+    );
+
+    if (!saveRes.ok) {
+      const errText = await saveRes.text();
+      throw new Error(
+        `Spec persistence failed (${saveRes.status}): ${errText}`,
+      );
+    }
+
+    const { specId } = (await saveRes.json()) as { specId: string };
 
     await metadata.set("progress", 100);
     await metadata.set("status", "complete");
 
     return {
       specContent,
+      specId,
       roomId: parsed.roomId,
       projectId: parsed.projectId,
     };

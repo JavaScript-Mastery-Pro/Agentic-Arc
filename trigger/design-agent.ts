@@ -146,6 +146,29 @@ export const designAgent = task({
     const gemini = createGoogleGenerativeAI({ apiKey });
     const liveblocks = new Liveblocks({ secret });
 
+    // ── Liveblocks Feed helpers ──────────────────────────────────────
+    const STATUS_FEED_ID = "ai-status-feed";
+
+    // Ensure feeds exist (idempotent — no-op if already created)
+    await Promise.allSettled([
+      liveblocks.createFeed({ roomId, feedId: STATUS_FEED_ID }),
+      liveblocks.createFeed({ roomId, feedId: "ai-chat" }),
+    ]);
+
+    async function pushStatus(text: string) {
+      try {
+        await liveblocks.createFeedMessage({
+          roomId,
+          feedId: STATUS_FEED_ID,
+          data: { text },
+        });
+      } catch {
+        // Never break the task if status push fails
+      }
+    }
+
+    await pushStatus("Starting AI Architect...");
+
     let lastCursor: Point | null = null;
     let lastThinking = true;
 
@@ -210,6 +233,7 @@ export const designAgent = task({
         }
 
         try {
+          await pushStatus("Analyzing your architecture request...");
           await generateText({
             model: gemini(process.env.GEMINI_MODEL ?? "gemini-2.0-flash"),
             maxOutputTokens: 4096,
@@ -500,7 +524,10 @@ ${prompt}
             },
 
             stopWhen: stepCountIs(30),
-            experimental_onToolCallStart: stopThinking,
+            experimental_onToolCallStart: ({ toolCall }) => {
+              void pushStatus(`Updating canvas: ${toolCall.toolName}...`);
+              stopThinking();
+            },
           });
         } finally {
           stopThinking();
@@ -510,6 +537,7 @@ ${prompt}
 
     // Short TTL so AI presence disappears after finishing
     await setPresence({ ttl: 3 });
+    await pushStatus("Canvas update complete ✓");
 
     return { ok: true };
   },

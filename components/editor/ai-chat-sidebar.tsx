@@ -1,6 +1,7 @@
 "use client";
 
 import { useRealtimeRun } from "@trigger.dev/react-hooks";
+import { useFeedMessages, useCreateFeedMessage } from "@liveblocks/react";
 import {
   Bot,
   Download,
@@ -28,19 +29,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+
+import type { CanvasEdge, CanvasNode } from "@/types/canvas";
 
 import type { designAgent } from "@/trigger/design-agent";
 import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
+import {
+  aiFeedMessageDataSchema,
+  chatFeedMessageDataSchema,
+  specTaskMetadataSchema,
+  specTaskOutputSchema,
+  tokenResponseSchema,
+  triggerResponseSchema,
+} from "@/types/tasks";
 
 interface StoredSpec {
   id: string;
@@ -53,8 +58,8 @@ interface AiChatSidebarProps {
   roomId: string;
   isOpen: boolean;
   onClose: () => void;
-  nodes: Record<string, unknown>[];
-  edges: Record<string, unknown>[];
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
 }
 
 function formatGeneratedTime(isoTime: string) {
@@ -112,17 +117,8 @@ function DesignRunTracker({
     );
   }
 
-  const isRunning =
-    !run || (run.status !== "COMPLETED" && run.status !== "FAILED");
-
-  if (!isRunning) return null;
-
-  return (
-    <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
-      <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
-      <span>AI is working on the canvas...</span>
-    </div>
-  );
+  // UI is handled by AiStatusFeed; this component only manages lifecycle
+  return null;
 }
 
 function SpecRunTracker({
@@ -132,7 +128,7 @@ function SpecRunTracker({
 }: {
   runId: string;
   accessToken: string;
-  onComplete: (specContent: string | null) => void;
+  onComplete: (result: { specContent: string; specId: string } | null) => void;
 }) {
   const { run, error } = useRealtimeRun<typeof generateSpecGemini>(runId, {
     accessToken,
@@ -147,11 +143,17 @@ function SpecRunTracker({
       (run.status === "COMPLETED" || run.status === "FAILED")
     ) {
       completed.current = true;
-      const specContent =
-        run.status === "COMPLETED" && run.output
-          ? (run.output as { specContent: string }).specContent
-          : null;
-      onComplete(specContent);
+      if (run.status === "COMPLETED" && run.output) {
+        const parsed = specTaskOutputSchema.safeParse(run.output);
+        if (parsed.success) {
+          const { specContent, specId } = parsed.data;
+          onComplete(specContent && specId ? { specContent, specId } : null);
+        } else {
+          onComplete(null);
+        }
+      } else {
+        onComplete(null);
+      }
     }
   }, [run, onComplete]);
 
@@ -163,10 +165,9 @@ function SpecRunTracker({
     );
   }
 
-  const progress = (run?.metadata as Record<string, unknown> | undefined)
-    ?.progress as number | undefined;
-  const status = (run?.metadata as Record<string, unknown> | undefined)
-    ?.status as string | undefined;
+  const metadata = specTaskMetadataSchema.safeParse(run?.metadata ?? {});
+  const progress = metadata.success ? metadata.data.progress : undefined;
+  const status = metadata.success ? metadata.data.status : undefined;
 
   return (
     <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5">
@@ -187,6 +188,33 @@ function SpecRunTracker({
   );
 }
 
+// Renders AI agent status messages from the Liveblocks "ai-status-feed" feed.
+// Always mounted so all room users receive realtime updates, not just the triggering user.
+// Renders as a compact status strip between chat and input — hidden when idle.
+function AiStatusFeed() {
+  const { messages, isLoading } = useFeedMessages("ai-status-feed");
+
+  if (isLoading || !messages || messages.length === 0) return null;
+
+  // Show only the latest status message
+  const latest = [...messages].at(-1);
+  if (!latest) return null;
+  const parsedFeed = aiFeedMessageDataSchema.safeParse(latest.data);
+  const d = parsedFeed.success ? parsedFeed.data : {};
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
+      <span className="relative flex h-2 w-2 shrink-0">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-60" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+      </span>
+      <p className="truncate font-mono text-xs text-indigo-300">
+        {d?.text ?? ""}
+      </p>
+    </div>
+  );
+}
+
 export function AiChatSidebar({
   roomId,
   isOpen,
@@ -194,9 +222,14 @@ export function AiChatSidebar({
   nodes,
   edges,
 }: AiChatSidebarProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Liveblocks collaborative chat feed — persisted & realtime for all room users
+  const { messages: feedMessages, isLoading: feedLoading } =
+    useFeedMessages("ai-chat");
+  const createFeedMessage = useCreateFeedMessage();
+
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [designRunId, setDesignRunId] = useState<string | null>(null);
@@ -215,6 +248,15 @@ export function AiChatSidebar({
     () => specs.find((spec) => spec.id === activeSpecId) ?? null,
     [activeSpecId, specs],
   );
+
+  const starterPrompts: Record<string, string> = {
+    "Design an e-commerce backend":
+      "Design a high-scale e-commerce backend architecture. Include an API Gateway, a User Service with Auth, a Product Catalog service using a NoSQL database, and an Order Processing system that communicates via a Message Queue. Don't forget to add a Redis cache for the catalog to handle high traffic.",
+    "Create a chat app architecture":
+      "Architect a real-time chat application. I need a WebSocket server for live messaging, a presence service to track online users, and a relational database for message history. Connect the services using a Pub/Sub system like Redis so it can scale horizontally, and include an S3 bucket for media attachments.",
+    "Build a CI/CD pipeline":
+      "Create a robust CI/CD pipeline for a microservices project. Start with a GitHub Webhook leading to a Build Server. Include separate stages for Unit Testing, Security Scanning, and Containerization (Docker). Finally, connect the flow to a Kubernetes cluster for deployment with a dedicated monitoring stack like Prometheus.",
+  };
 
   // Load persisted specs from the server on mount
   useEffect(() => {
@@ -237,6 +279,14 @@ export function AiChatSidebar({
     };
   }, [roomId]);
 
+  // Auto-resize textarea as content grows
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [input]);
+
   function scrollToBottom() {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({
@@ -246,49 +296,42 @@ export function AiChatSidebar({
     });
   }
 
-  const handleDesignComplete = useCallback((succeeded: boolean) => {
-    setDesignRunId(null);
-    setDesignAccessToken(null);
-    setIsLoading(false);
+  // Scroll when new feed messages arrive
+  useEffect(() => {
+    if (feedMessages && feedMessages.length > 0) scrollToBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedMessages?.length]); // intentionally not including feedMessages to avoid stale-ref issues
 
-    const assistantMessage: ChatMessage = {
-      id: `ai-${Date.now()}`,
-      role: "assistant",
-      content: succeeded
-        ? "Done! I've updated the canvas based on your request."
-        : "Something went wrong. Please try again.",
-    };
+  const handleDesignComplete = useCallback(
+    (succeeded: boolean) => {
+      setDesignRunId(null);
+      setDesignAccessToken(null);
+      setIsLoading(false);
 
-    setMessages((prev) => [...prev, assistantMessage]);
-    scrollToBottom();
-  }, []);
+      // Push the AI reply into the shared chat feed so all users see it
+      void createFeedMessage("ai-chat", {
+        role: "assistant",
+        content: succeeded
+          ? "Done! I've updated the canvas based on your request."
+          : "Something went wrong. Please try again.",
+      });
+      scrollToBottom();
+    },
+    [createFeedMessage],
+  );
 
   const handleSpecComplete = useCallback(
-    async (specContent: string | null) => {
+    async (result: { specContent: string; specId: string } | null) => {
       setSpecRunId(null);
       setSpecAccessToken(null);
       setIsGeneratingSpec(false);
 
-      if (!specContent) return;
+      if (!result) return;
 
+      const { specContent, specId } = result;
       const generatedAt = new Date().toISOString();
-      let specId = `local-${Date.now()}`;
 
-      try {
-        const res = await fetch(`/api/projects/${roomId}/spec`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ specContent }),
-        });
-
-        if (res.ok) {
-          const data = (await res.json()) as { specId: string };
-          specId = data.specId;
-        }
-      } catch {
-        // keep local fallback id; user can still view content in current session
-      }
-
+      // The task already persisted the spec server-side; use the returned specId.
       const newSpec: StoredSpec = {
         id: specId,
         title: `Spec v${specs.length + 1}`,
@@ -300,12 +343,20 @@ export function AiChatSidebar({
       setActiveSpecId(newSpec.id);
       setIsSpecDialogOpen(true);
     },
-    [roomId, specs.length],
+    [specs.length],
   );
 
   async function handleGenerateSpec() {
     if (isGeneratingSpec) return;
     setIsGeneratingSpec(true);
+
+    const chatHistory = (feedMessages ?? []).map((m) => {
+      const parsed = chatFeedMessageDataSchema.safeParse(m.data);
+      const d = parsed.success
+        ? parsed.data
+        : { role: "user" as const, content: "" };
+      return { role: d.role, content: d.content };
+    });
 
     try {
       const triggerRes = await fetch("/api/ai/spec", {
@@ -314,9 +365,7 @@ export function AiChatSidebar({
         body: JSON.stringify({
           roomId,
           projectId: roomId,
-          chatHistory: messages
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m) => ({ role: m.role, content: m.content })),
+          chatHistory,
           nodes,
           edges,
         }),
@@ -327,7 +376,13 @@ export function AiChatSidebar({
         return;
       }
 
-      const { runId } = (await triggerRes.json()) as { runId: string };
+      const triggerSpecRes = await triggerRes.json();
+      const specRunParsed = triggerResponseSchema.safeParse(triggerSpecRes);
+      if (!specRunParsed.success) {
+        setIsGeneratingSpec(false);
+        return;
+      }
+      const { runId } = specRunParsed.data;
 
       const tokenRes = await fetch("/api/ai/spec/token", {
         method: "POST",
@@ -340,9 +395,14 @@ export function AiChatSidebar({
         return;
       }
 
-      const { publicToken } = (await tokenRes.json()) as {
-        publicToken: string;
-      };
+      const tokenSpecParsed = tokenResponseSchema.safeParse(
+        await tokenRes.json(),
+      );
+      if (!tokenSpecParsed.success) {
+        setIsGeneratingSpec(false);
+        return;
+      }
+      const { publicToken } = tokenSpecParsed.data;
 
       setSpecRunId(runId);
       setSpecAccessToken(publicToken);
@@ -356,22 +416,23 @@ export function AiChatSidebar({
     setIsSpecDialogOpen(true);
   }
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
+  async function handleSubmit(event?: React.FormEvent) {
+    event?.preventDefault();
 
     const prompt = input.trim();
     if (!prompt || isLoading) return;
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: prompt,
-    };
+    // Push the user message into the shared collaborative feed
+    void createFeedMessage("ai-chat", { role: "user", content: prompt });
 
-    setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
     scrollToBottom();
+
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
 
     try {
       const triggerRes = await fetch("/api/ai/design", {
@@ -384,7 +445,13 @@ export function AiChatSidebar({
         throw new Error("Failed to trigger design agent.");
       }
 
-      const { runId } = (await triggerRes.json()) as { runId: string };
+      const designRunParsed = triggerResponseSchema.safeParse(
+        await triggerRes.json(),
+      );
+      if (!designRunParsed.success) {
+        throw new Error("Failed to trigger design agent.");
+      }
+      const { runId } = designRunParsed.data;
 
       const tokenRes = await fetch("/api/ai/design/token", {
         method: "POST",
@@ -396,24 +463,30 @@ export function AiChatSidebar({
         throw new Error("Failed to get design token.");
       }
 
-      const { publicToken } = (await tokenRes.json()) as {
-        publicToken: string;
-      };
-
-      setDesignRunId(runId);
+      const tokenDesignParsed = tokenResponseSchema.safeParse(
+        await tokenRes.json(),
+      );
+      if (!tokenDesignParsed.success) {
+        throw new Error("Failed to get design token.");
+      }
+      const { publicToken } = tokenDesignParsed.data;
       setDesignAccessToken(publicToken);
       scrollToBottom();
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `err-${Date.now()}`,
-          role: "assistant",
-          content: "Failed to reach the AI service. Please try again.",
-        },
-      ]);
+      void createFeedMessage("ai-chat", {
+        role: "assistant",
+        content: "Failed to reach the AI service. Please try again.",
+      });
       setIsLoading(false);
       scrollToBottom();
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Submit on Enter, new line on Shift+Enter
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSubmit();
     }
   }
 
@@ -462,10 +535,11 @@ export function AiChatSidebar({
           <TabsContent
             value="architect"
             className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
+            {/* Chat messages — clean conversation view only */}
             <div
               ref={scrollRef}
               className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-3">
-              {messages.length === 0 ? (
+              {!feedLoading && (!feedMessages || feedMessages.length === 0) ? (
                 <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900">
                     <Bot className="h-6 w-6 text-zinc-500" />
@@ -480,58 +554,68 @@ export function AiChatSidebar({
                     </p>
                   </div>
                   <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-                    {[
-                      "Design an e-commerce backend",
-                      "Create a chat app architecture",
-                      "Build a CI/CD pipeline",
-                    ].map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        type="button"
-                        onClick={() => setInput(suggestion)}
-                        className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200">
-                        {suggestion}
-                      </button>
-                    ))}
+                    {Object.entries(starterPrompts).map(
+                      ([label, fullPrompt]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setInput(fullPrompt)}
+                          className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200">
+                          {label}
+                        </button>
+                      ),
+                    )}
                   </div>
                 </div>
               ) : (
-                messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={cn(
-                      "flex",
-                      message.role === "user" ? "justify-end" : "justify-start",
-                    )}>
+                (feedMessages ?? []).map((message) => {
+                  const msgParsed = chatFeedMessageDataSchema.safeParse(
+                    message.data,
+                  );
+                  const d = msgParsed.success
+                    ? msgParsed.data
+                    : { role: "user" as const, content: "" };
+                  const isUser = d.role === "user";
+                  return (
                     <div
+                      key={message.id}
                       className={cn(
-                        "max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed",
-                        message.role === "user"
-                          ? "bg-indigo-600 text-white"
-                          : "border border-zinc-800 bg-zinc-900 text-zinc-200",
+                        "flex",
+                        isUser ? "justify-end" : "justify-start",
                       )}>
-                      {message.content}
+                      <div
+                        className={cn(
+                          "max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed",
+                          isUser
+                            ? "bg-indigo-600 text-white"
+                            : "border border-zinc-800 bg-zinc-900 text-zinc-200",
+                        )}>
+                        {d.content ?? ""}
+                      </div>
                     </div>
-                  </div>
-                ))
-              )}
-
-              {designRunId && designAccessToken && (
-                <DesignRunTracker
-                  runId={designRunId}
-                  accessToken={designAccessToken}
-                  onComplete={handleDesignComplete}
-                />
-              )}
-
-              {specRunId && specAccessToken && (
-                <SpecRunTracker
-                  runId={specRunId}
-                  accessToken={specAccessToken}
-                  onComplete={handleSpecComplete}
-                />
+                  );
+                })
               )}
             </div>
+
+            {/* Agent activity log — fixed between chat and input, hidden when idle */}
+            <AiStatusFeed />
+
+            {/* Run lifecycle trackers — invisible, only manage completion callbacks */}
+            {designRunId && designAccessToken && (
+              <DesignRunTracker
+                runId={designRunId}
+                accessToken={designAccessToken}
+                onComplete={handleDesignComplete}
+              />
+            )}
+            {specRunId && specAccessToken && (
+              <SpecRunTracker
+                runId={specRunId}
+                accessToken={specAccessToken}
+                onComplete={handleSpecComplete}
+              />
+            )}
 
             <div className="space-y-2 border-t border-zinc-800 px-1 pt-3">
               <Button
@@ -554,23 +638,30 @@ export function AiChatSidebar({
                 )}
               </Button>
 
-              <form onSubmit={handleSubmit} className="flex items-center gap-2">
-                <Input
-                  type="text"
+              <div className="flex items-end gap-2">
+                <Textarea
+                  ref={textareaRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Describe your system..."
+                  onKeyDown={handleKeyDown}
+                  placeholder="Describe your system (Enter to send, Shift+Enter for new line)"
                   disabled={isLoading}
-                  className="h-9 rounded-lg"
+                  rows={1}
+                  className="min-h-[36px] flex-1 resize-none rounded-lg py-2 text-sm leading-relaxed"
                 />
                 <Button
-                  type="submit"
+                  type="button"
                   size="icon"
+                  onClick={() => void handleSubmit()}
                   disabled={!input.trim() || isLoading}
                   className="h-9 w-9 shrink-0 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40">
-                  <Send className="h-4 w-4" />
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
                 </Button>
-              </form>
+              </div>
             </div>
           </TabsContent>
 

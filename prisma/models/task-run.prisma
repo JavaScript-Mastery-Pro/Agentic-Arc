@@ -1,0 +1,12 @@
+// Tracks Trigger.dev run IDs against the project and user that triggered them.
+// Used to verify run ownership before issuing public realtime tokens.
+model TaskRun {
+  id        String   @id @default(cuid())
+  runId     String   @unique
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@index([runId])
+  @@index([userId, projectId])
+}

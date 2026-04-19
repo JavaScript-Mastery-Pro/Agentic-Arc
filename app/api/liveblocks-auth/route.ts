@@ -55,6 +55,12 @@ export async function POST(request: Request) {
       },
     });
 
+    // Ensure feeds exist for this room — idempotent, safe to call on every auth
+    await Promise.allSettled([
+      liveblocks.createFeed({ roomId, feedId: "ai-chat" }),
+      liveblocks.createFeed({ roomId, feedId: "ai-status-feed" }),
+    ]);
+
     const { status, body: liveblocksBody } = await liveblocks.identifyUser(
       {
         userId,

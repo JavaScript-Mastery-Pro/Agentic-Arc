@@ -24,7 +24,7 @@ type SpecPayload = z.infer<typeof specPayloadSchema>;
 
 // ── Task ────────────────────────────────────────────────────────────
 export const generateSpecGemini = task({
-  id: "generate-spec-gemini",
+  id: "generate-spec",
   retry: {
     maxAttempts: 5,
     minTimeoutInMs: 10_000,

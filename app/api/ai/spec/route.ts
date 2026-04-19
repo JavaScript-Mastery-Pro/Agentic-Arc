@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
-import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
+import type { generateSpecGemini } from "@/trigger/generate-spec";
 
 interface GenerateSpecBody {
   roomId?: string;
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   // projectId is always derived from the access-checked roomId, never from
   // the client-supplied body, to prevent cross-project authorization drift.
   const handle = await tasks.trigger<typeof generateSpecGemini>(
-    "generate-spec-gemini",
+    "generate-spec",
     {
       projectId: body.roomId,
       roomId: body.roomId,

@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 
-// ── Spec generation task (generate-spec-gemini) ──────────────────────────────
+// ── Spec generation task (generate-spec) ──────────────────────────────
 
 export const specTaskOutputSchema = z.object({
   specContent: z.string(),

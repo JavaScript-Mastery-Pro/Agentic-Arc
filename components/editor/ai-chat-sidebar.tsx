@@ -37,7 +37,7 @@ import { cn } from "@/lib/utils";
 import type { CanvasEdge, CanvasNode } from "@/types/canvas";
 
 import type { designAgent } from "@/trigger/design-agent";
-import type { generateSpecGemini } from "@/trigger/generate-spec-gemini";
+import type { generateSpecGemini } from "@/trigger/generate-spec";
 import {
   aiFeedMessageDataSchema,
   chatFeedMessageDataSchema,

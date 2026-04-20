@@ -24,7 +24,7 @@ type SpecPayload = z.infer<typeof specPayloadSchema>;
 
 // ── Task ────────────────────────────────────────────────────────────
 export const generateSpecGemini = task({
-  id: "generate-spec-gemini",
+  id: "generate-spec",
   retry: {
     maxAttempts: 5,
     minTimeoutInMs: 10_000,
@@ -133,7 +133,8 @@ Generate a comprehensive technical specification for this system.`,
     //   INTERNAL_API_SECRET — a long random secret shared between both sides
     // APP_URL falls back to localhost so the task works even when the
     // Trigger.dev CLI does not forward .env.local to the worker process.
-    const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+    const appUrl = process.env.APP_URL;
+    // console.log("app url: ", appUrl);
     const internalSecret = process.env.INTERNAL_API_SECRET;
 
     if (!internalSecret)

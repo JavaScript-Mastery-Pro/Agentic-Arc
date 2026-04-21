@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { get } from "@vercel/blob";
 import { NextResponse } from "next/server";
 
 import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
@@ -35,12 +35,17 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Spec not found." }, { status: 404 });
   }
 
-  const content = await readFile(spec.filePath, "utf-8");
+  const blob = await get(spec.filePath, { access: "private" });
+
+  if (!blob || blob.statusCode !== 200) {
+    return NextResponse.json({ error: "Spec file missing." }, { status: 404 });
+  }
+
   const fileName = `spec-${spec.createdAt.toISOString().split("T")[0]}.md`;
 
-  return new Response(content, {
+  return new Response(blob.stream, {
     headers: {
-      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Type": blob.blob.contentType,
       "Content-Disposition": `attachment; filename="${fileName}"`,
     },
   });

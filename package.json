@@ -29,6 +29,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@trigger.dev/react-hooks": "^4.4.4",
     "@trigger.dev/sdk": "^4.4.4",
+    "@vercel/blob": "^2.3.3",
     "@xyflow/react": "^12.10.2",
     "ai": "^6.0.161",
     "class-variance-authority": "^0.7.1",

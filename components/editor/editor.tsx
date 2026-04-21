@@ -40,24 +40,21 @@ import {
   Database,
   Diamond,
   Hexagon,
-  Link2,
   Loader2,
   Maximize2,
   Minus,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   RectangleHorizontal,
   Redo2,
-  RefreshCw,
-  Save,
-  Sparkles,
   Undo2,
 } from "lucide-react";
 import { type DragEvent, useMemo, useRef, useState } from "react";
 
 import { EditorErrorBoundary } from "@/components/editor/error-boundary";
 import { AiChatSidebar } from "@/components/editor/ai-chat-sidebar";
+import { EditorNavbar } from "@/components/editor/editor-navbar";
+import { ImportTemplatesModal } from "@/components/editor/import-templates-modal";
+import type { CanvasTemplate } from "@/components/editor/import-templates";
 import {
   ProjectSidebar,
   type EditorProject,
@@ -185,14 +182,6 @@ const shapePanelItems: ShapePanelItem[] = [
     defaultHeight: 200,
   },
 ];
-
-function formatRoomName(roomId: string) {
-  return roomId
-    .split("-")
-    .filter(Boolean)
-    .map((segment) => segment[0]?.toUpperCase() + segment.slice(1))
-    .join(" ");
-}
 
 function getInitials(name: string) {
   return (
@@ -651,6 +640,7 @@ function EditorWorkspace({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const {
     isCreateDialogOpen,
@@ -720,10 +710,6 @@ function EditorWorkspace({
   );
   useKeyboardShortcuts(flow, undo, redo);
 
-  function handleResetView() {
-    flow?.fitView({ duration: 300, padding: 0.2 });
-  }
-
   function handleDragOver(event: DragEvent) {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
@@ -763,8 +749,31 @@ function EditorWorkspace({
     }
   }
 
+  function handleImport(template: CanvasTemplate) {
+    // onNodesChange "remove" is a no-op in Liveblocks — only onDelete actually
+    // removes from storage. Clear everything first, then add the template nodes.
+    onDelete({ nodes: canvasNodes, edges: canvasEdges });
+
+    onNodesChange(
+      template.nodes.map((n) => ({ type: "add" as const, item: n })),
+    );
+    onEdgesChange(
+      template.edges.map((e) => ({ type: "add" as const, item: e })),
+    );
+
+    requestAnimationFrame(() => {
+      flow?.fitView({ duration: 400, padding: 0.15 });
+    });
+  }
+
   return (
     <div className="relative h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+      <ImportTemplatesModal
+        isOpen={isImportModalOpen}
+        onOpenChange={setIsImportModalOpen}
+        onImport={handleImport}
+      />
+
       <ShareDialog
         roomId={roomId}
         canManageSharing={canManageSharing}
@@ -902,78 +911,17 @@ function EditorWorkspace({
       </Dialog>
 
       <div className="relative z-10 flex h-full min-w-0 flex-col">
-        <header className="relative flex h-14 items-center justify-between border-b border-zinc-800 bg-zinc-950/95 px-4">
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              onClick={() => setIsSidebarOpen((current) => !current)}
-              aria-label={
-                isSidebarOpen ? "Hide project sidebar" : "Show project sidebar"
-              }
-              variant="secondary"
-              size="icon"
-              className="h-9 w-9 rounded-lg">
-              {isSidebarOpen ? (
-                <PanelLeftClose className="h-4 w-4" />
-              ) : (
-                <PanelLeftOpen className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-
-          <p className="absolute left-1/2 -translate-x-1/2 text-sm font-medium text-zinc-100">
-            {formatRoomName(roomId)}
-          </p>
-
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={saveCanvas}
-              disabled={saveStatus === "saving"}
-              className="rounded-lg">
-              {saveStatus === "saving" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Save className="h-3.5 w-3.5" />
-              )}
-              {saveStatus === "saved"
-                ? "Saved"
-                : saveStatus === "saving"
-                  ? "Saving…"
-                  : "Save"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleResetView}
-              className="rounded-lg">
-              <RefreshCw className="h-3.5 w-3.5" />
-              Reset
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setIsShareDialogOpen(true)}
-              className="rounded-lg">
-              <Link2 className="h-3.5 w-3.5" />
-              Share
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setIsAiChatOpen((v) => !v)}
-              className={cn(
-                "rounded-lg",
-                isAiChatOpen && "bg-indigo-600 hover:bg-indigo-500",
-              )}>
-              <Sparkles className="h-3.5 w-3.5" />
-              AI
-            </Button>
-          </div>
-        </header>
+        <EditorNavbar
+          roomId={roomId}
+          saveStatus={saveStatus}
+          isSidebarOpen={isSidebarOpen}
+          isAiChatOpen={isAiChatOpen}
+          onToggleSidebar={() => setIsSidebarOpen((current) => !current)}
+          onSave={saveCanvas}
+          onOpenImport={() => setIsImportModalOpen(true)}
+          onOpenShare={() => setIsShareDialogOpen(true)}
+          onToggleAiChat={() => setIsAiChatOpen((v) => !v)}
+        />
 
         <div className="relative min-h-0 flex-1 bg-zinc-950">
           <CanvasPresence />
@@ -1120,7 +1068,7 @@ function EditorWorkspace({
 
 export function Editor(props: EditorProps) {
   return (
-    <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
+    <LiveblocksProvider throttle={16} authEndpoint="/api/liveblocks-auth">
       <RoomProvider id={props.roomId} initialPresence={{ cursor: null }}>
         <EditorErrorBoundary
           fallback={

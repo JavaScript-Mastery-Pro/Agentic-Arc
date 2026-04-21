@@ -1,11 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 
 import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
-
-const CANVAS_DIR = join(process.cwd(), "data", "canvas");
 
 interface RouteContext {
   params: Promise<{ projectId: string }>;
@@ -35,8 +32,9 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   try {
-    const raw = await readFile(project.canvasJsonPath, "utf-8");
-    return NextResponse.json(JSON.parse(raw));
+    const res = await fetch(project.canvasJsonPath);
+    if (!res.ok) return NextResponse.json({ nodes: [], edges: [] });
+    return NextResponse.json(await res.json());
   } catch {
     return NextResponse.json({ nodes: [], edges: [] });
   }
@@ -80,16 +78,16 @@ export async function PUT(request: Request, context: RouteContext) {
     );
   }
 
-  await mkdir(CANVAS_DIR, { recursive: true });
+  const blob = await put(`canvas/${projectId}.json`, JSON.stringify(body), {
+    access: "public",
+    contentType: "application/json",
+    allowOverwrite: true,
+  });
 
-  const filePath = join(CANVAS_DIR, `${projectId}.json`);
-
-  await writeFile(filePath, JSON.stringify(body, null, 2), "utf-8");
-
-  if (project.canvasJsonPath !== filePath) {
+  if (project.canvasJsonPath !== blob.url) {
     await prisma.project.update({
       where: { id: projectId },
-      data: { canvasJsonPath: filePath },
+      data: { canvasJsonPath: blob.url },
     });
   }
 

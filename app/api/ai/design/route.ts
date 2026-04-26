@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { tasks } from "@trigger.dev/sdk";
 import { NextResponse } from "next/server";
 
@@ -34,18 +35,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const handle = await tasks.trigger<typeof designAgent>("design-agent", {
-    roomId,
-    prompt,
-  });
+  const idempotencyKey = createHash("sha256")
+    .update(`${roomId}:${prompt}`)
+    .digest("hex");
+
+  const handle = await tasks.trigger<typeof designAgent>(
+    "design-agent",
+    { roomId, prompt },
+    { idempotencyKey },
+  );
 
   // Persist run ownership so token endpoints can verify access.
-  await prisma.taskRun.create({
-    data: {
+  // upsert: if Trigger.dev returns the same run ID via idempotency, skip silently.
+  await prisma.taskRun.upsert({
+    where: { runId: handle.id },
+    create: {
       runId: handle.id,
       projectId: roomId,
       userId: identity.userId,
     },
+    update: {},
   });
 
   return NextResponse.json({ runId: handle.id, status: "triggered" });

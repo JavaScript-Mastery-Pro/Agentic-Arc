@@ -50,12 +50,15 @@ export async function POST(request: Request) {
   );
 
   // Persist run ownership so token endpoints can verify access.
-  await prisma.taskRun.create({
-    data: {
+  // upsert: if Trigger.dev returns the same run ID via idempotency, skip silently.
+  await prisma.taskRun.upsert({
+    where: { runId: handle.id },
+    create: {
       runId: handle.id,
       projectId: body.roomId,
       userId: identity.userId,
     },
+    update: {},
   });
 
   return NextResponse.json({

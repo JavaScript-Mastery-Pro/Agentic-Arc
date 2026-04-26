@@ -19,10 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import type { CanvasNode } from "@/types/canvas";
 
-import {
-  CANVAS_TEMPLATES,
-  type CanvasTemplate,
-} from "@/components/editor/import-templates";
+import { CANVAS_TEMPLATES, type CanvasTemplate } from "@/lib/import-templates";
 
 // ── Mini diagram preview ──────────────────────────────────────────
 
@@ -196,26 +193,26 @@ interface TemplateCardProps {
 
 function TemplateCard({ template, onImport }: TemplateCardProps) {
   return (
-    <Card className="flex flex-col overflow-hidden rounded-2xl border-zinc-800 bg-zinc-950 transition-colors hover:border-zinc-700">
+    <Card className="flex flex-col overflow-hidden rounded-2xl border-surface-border bg-base transition-colors hover:border-surface-border-strong">
       {/* Preview area */}
-      <div className="bg-zinc-950 p-3">
+      <div className="bg-base p-3">
         <TemplatePreview template={template} />
       </div>
 
       {/* Info + action */}
-      <CardHeader className="flex-1 border-t border-zinc-800 bg-zinc-900/60 px-4 pt-3 pb-2">
+      <CardHeader className="flex-1 border-t border-surface-border bg-elevated/60 px-4 pt-3 pb-2">
         <CardTitle className="text-sm">{template.name}</CardTitle>
         <CardDescription className="text-xs leading-relaxed">
           {template.description}
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="border-zinc-800 bg-zinc-900/60 px-4 pb-4">
+      <CardContent className="border-surface-border bg-elevated/60 px-4 pb-4">
         <Button
           type="button"
-          variant="outline"
+          variant="secondary"
           size="sm"
-          className="w-full rounded-xl"
+          className="w-full"
           onClick={() => onImport(template)}>
           <Download className="h-3.5 w-3.5" />
           Import
@@ -249,7 +246,7 @@ export function ImportTemplatesModal({
           <DialogDescription>
             Choose a starter template to pre-populate your canvas. Any existing
             nodes will be replaced — use{" "}
-            <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1 py-0.5 text-[11px] text-zinc-300">
+            <kbd className="rounded border border-surface-border-strong bg-elevated px-1 py-0.5 text-[11px] text-copy-secondary">
               ⌘Z
             </kbd>{" "}
             to undo.

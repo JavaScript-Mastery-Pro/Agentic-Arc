@@ -79,7 +79,7 @@ export async function PUT(request: Request, context: RouteContext) {
   }
 
   const blob = await put(`canvas/${projectId}.json`, JSON.stringify(body), {
-    access: "public",
+    access: "private",
     contentType: "application/json",
     allowOverwrite: true,
   });

@@ -6,11 +6,16 @@ import { generateText, stepCountIs, tool } from "ai";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import type { Edge, Node } from "@xyflow/react";
+import {
+  NODE_COLORS as CANVAS_NODE_COLORS,
+  NODE_SHAPES as CANVAS_NODE_SHAPES,
+} from "@/types/canvas";
 
 // ── Types ───────────────────────────────────────────────────────────
 interface CanvasNodeData extends Record<string, unknown> {
   label: string;
   color: string;
+  textColor?: string;
   shape?: string;
 }
 
@@ -43,19 +48,13 @@ const AGENT_INFO = {
   color: "#6366f1",
 };
 
-const NODE_SHAPES = ["rectangle", "diamond", "circle", "pill"] as const;
-const NODE_COLORS = [
-  "#1e293b",
-  "#1e3a8a",
-  "#0369a1",
-  "#0f766e",
-  "#065f46",
-  "#3730a3",
-  "#5b21b6",
-  "#7e22ce",
-  "#9f1239",
-  "#9a3412",
-] as const;
+const NODE_COLOR_VALUES = CANVAS_NODE_COLORS.map((c) => c.nodeColor) as [
+  string,
+  ...string[],
+];
+const COLOR_TO_TEXT = Object.fromEntries(
+  CANVAS_NODE_COLORS.map((c) => [c.nodeColor, c.textColor]),
+) as Record<string, string>;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 function sleep(ms: number) {
@@ -131,6 +130,7 @@ function getEdgeHandles(
 // ── Task ────────────────────────────────────────────────────────────
 export const designAgent = task({
   id: "design-agent",
+  maxDuration: 300,
   retry: {
     maxAttempts: 1,
   },
@@ -239,13 +239,13 @@ export const designAgent = task({
             maxOutputTokens: 4096,
             system: `You edit a live collaborative React Flow diagram for system architecture design.
 
-Node shape: { id, position: { x, y }, width, height, data: { label, shape, color } }.
+Node shape: { id, position: { x, y }, width, height, data: { label, shape, color, textColor } }.
 Edge shape: { id, source, target, sourceHandle, targetHandle }.
 
 Rules:
 - All nodes use type "canvasNode".
-- Shapes: ${NODE_SHAPES.join(" | ")}.
-- Colors (hex): ${NODE_COLORS.join(", ")}.
+- Shapes: ${CANVAS_NODE_SHAPES.join(" | ")}.
+- Colors (nodeColor hex — textColor is auto-set, do NOT specify it): ${NODE_COLOR_VALUES.join(", ")}.
 - Make small, deliberate changes that are easy to follow visually.
 - Keep labels short and descriptive.
 - Maintain readable spacing and avoid overlap (minimum 50px gap between nodes).
@@ -272,8 +272,10 @@ ${prompt}
                   width: z.number().min(60).max(400).optional(),
                   height: z.number().min(60).max(400).optional(),
                   label: z.string().optional(),
-                  shape: z.enum(NODE_SHAPES).optional(),
-                  color: z.enum(NODE_COLORS).optional(),
+                  shape: z
+                    .enum([...CANVAS_NODE_SHAPES] as [string, ...string[]])
+                    .optional(),
+                  color: z.enum(NODE_COLOR_VALUES).optional(),
                 }),
                 execute: (input) =>
                   enqueue(async () => {
@@ -293,6 +295,8 @@ ${prompt}
                     if (flow.getNode(id))
                       return { ok: false, reason: "id_exists", id };
 
+                    const chosenColor =
+                      input.color ?? CANVAS_NODE_COLORS[0].nodeColor;
                     flow.addNode({
                       id,
                       type: "canvasNode",
@@ -301,7 +305,8 @@ ${prompt}
                       height: h,
                       data: {
                         label: input.label ?? "",
-                        color: input.color ?? "#1e293b",
+                        color: chosenColor,
+                        textColor: COLOR_TO_TEXT[chosenColor],
                         shape: input.shape ?? "rectangle",
                       },
                     } as CanvasNode);
@@ -388,8 +393,10 @@ ${prompt}
                 inputSchema: z.object({
                   id: z.string(),
                   label: z.string().optional(),
-                  shape: z.enum(NODE_SHAPES).optional(),
-                  color: z.enum(NODE_COLORS).optional(),
+                  shape: z
+                    .enum([...CANVAS_NODE_SHAPES] as [string, ...string[]])
+                    .optional(),
+                  color: z.enum(NODE_COLOR_VALUES).optional(),
                 }),
                 execute: (input) =>
                   enqueue(async () => {
@@ -406,7 +413,10 @@ ${prompt}
                     const data: Partial<CanvasNodeData> = {};
                     if (input.label !== undefined) data.label = input.label;
                     if (input.shape !== undefined) data.shape = input.shape;
-                    if (input.color !== undefined) data.color = input.color;
+                    if (input.color !== undefined) {
+                      data.color = input.color;
+                      data.textColor = COLOR_TO_TEXT[input.color];
+                    }
                     if (Object.keys(data).length > 0)
                       flow.updateNodeData(input.id, data);
 

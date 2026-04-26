@@ -17,28 +17,26 @@ export const NODE_SHAPES = [
   "hexagon",
 ] as const;
 
-// Vivid dark hues that remain readable with light text on the dark canvas.
+// Node fill/text pairs tuned for readable labels on the dark canvas.
 export const NODE_COLORS = [
-  "#1E293B", // slate (Standard default)
-  "#1E3A8A", // deep blue
-  "#0369A1", // marine / sky
-  "#0F766E", // pine / teal
-  "#065F46", // forest / emerald
-  "#3730A3", // deep indigo
-  "#5B21B6", // amethyst / purple
-  "#86198F", // plum / fuchsia
-  "#9F1239", // ruby / rose
-  "#9A3412", // rust / orange
-  "#78350F", // mocha / amber
-  "#27272A", // charcoal / zinc
+  { nodeColor: "#1F1F1F", textColor: "#EDEDED" },
+  { nodeColor: "#10233D", textColor: "#52A8FF" },
+  { nodeColor: "#2E1938", textColor: "#BF7AF0" },
+  { nodeColor: "#331B00", textColor: "#FF990A" },
+  { nodeColor: "#3C1618", textColor: "#FF6166" },
+  { nodeColor: "#3A1726", textColor: "#F75F8F" },
+  { nodeColor: "#0F2E18", textColor: "#62C073" },
+  { nodeColor: "#062822", textColor: "#0AC7B4" },
 ] as const;
 
-export const DEFAULT_NODE_COLOR = NODE_COLORS[0];
-export const DEFAULT_EDGE_COLOR = "#e2e8f0";
+export const DEFAULT_NODE_COLOR = NODE_COLORS[0].nodeColor;
+export const DEFAULT_NODE_TEXT_COLOR = NODE_COLORS[0].textColor;
+export const DEFAULT_EDGE_COLOR = "#f8fafc";
 
 export interface CanvasNodeData extends Record<string, unknown> {
   label: string;
   color: string;
+  textColor?: string;
   shape?: NodeShape;
 }
 

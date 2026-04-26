@@ -1,16 +1,28 @@
-import { rm, unlink } from "node:fs/promises";
-import { join } from "node:path";
-
+import { del, list } from "@vercel/blob";
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import prisma from "@/lib/prisma";
 
-const CANVAS_DIR = join(process.cwd(), "data", "canvas");
-const SPEC_DIR = join(process.cwd(), "data", "specs");
-
 interface RouteContext {
   params: Promise<{ projectId: string }>;
+}
+
+async function deleteProjectSpecBlobs(projectId: string) {
+  let cursor: string | undefined;
+
+  do {
+    const response = await list({
+      prefix: `specs/${projectId}/`,
+      cursor,
+    });
+
+    if (response.blobs.length > 0) {
+      await del(response.blobs.map((blob) => blob.url));
+    }
+
+    cursor = response.cursor;
+  } while (cursor);
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
@@ -60,7 +72,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { creatorId: true },
+    select: { creatorId: true, canvasJsonPath: true },
   });
 
   if (!project) {
@@ -73,11 +85,13 @@ export async function DELETE(_request: Request, context: RouteContext) {
 
   await prisma.project.delete({ where: { id: projectId } });
 
-  // Non-fatal artifact cleanup — orphaned files should not fail the response.
-  const cleanupResults = await Promise.allSettled([
-    unlink(join(CANVAS_DIR, `${projectId}.json`)),
-    rm(join(SPEC_DIR, projectId), { recursive: true, force: true }),
-  ]);
+  // Non-fatal artifact cleanup — blob errors should not fail the response.
+  const cleanupTasks: Promise<unknown>[] = [deleteProjectSpecBlobs(projectId)];
+  if (project.canvasJsonPath) {
+    cleanupTasks.push(del(project.canvasJsonPath));
+  }
+
+  const cleanupResults = await Promise.allSettled(cleanupTasks);
   for (const result of cleanupResults) {
     if (result.status === "rejected") {
       console.error("[project-delete] Artifact cleanup error:", result.reason);

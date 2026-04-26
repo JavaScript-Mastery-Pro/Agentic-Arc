@@ -4,17 +4,22 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium shadow-none transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
   {
     variants: {
       variant: {
         default:
-          "bg-cyan-400 text-zinc-950 shadow-[0_12px_30px_rgba(34,211,238,0.22)] hover:bg-cyan-300",
+          "bg-brand text-brand-foreground hover:bg-brand-hover",
+        accent:
+          "bg-accent text-accent-foreground hover:bg-accent-hover",
+        danger:
+          "border border-danger-border bg-danger text-danger-foreground hover:border-danger-border-hover hover:bg-danger-hover hover:text-danger-foreground-hover",
         secondary:
-          "border border-zinc-800 bg-zinc-900/80 text-zinc-100 hover:border-zinc-700 hover:bg-zinc-900",
-        ghost: "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100",
+          "border border-surface-border bg-surface text-copy-primary hover:border-surface-border-strong hover:bg-surface-hover",
+        ghost:
+          "text-copy-secondary hover:bg-surface-hover hover:text-copy-primary",
         outline:
-          "border border-zinc-800 bg-transparent text-zinc-200 hover:border-zinc-700 hover:bg-zinc-900/70",
+          "border border-surface-border bg-transparent text-copy-secondary hover:border-surface-border-strong hover:bg-surface",
       },
       size: {
         default: "h-10 px-4 py-2",

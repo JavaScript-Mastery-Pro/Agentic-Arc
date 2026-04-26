@@ -1,11 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { get, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 
 import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
 import prisma from "@/lib/prisma";
-
-const SPEC_DIR = join(process.cwd(), "data", "specs");
 
 interface RouteContext {
   params: Promise<{ projectId: string }>;
@@ -40,7 +37,10 @@ export async function GET(_request: Request, context: RouteContext) {
     records.map(async (record, index) => {
       let content = "";
       try {
-        content = await readFile(record.filePath, "utf-8");
+        const blob = await get(record.filePath, { access: "private" });
+        if (blob?.statusCode === 200) {
+          content = await new Response(blob.stream).text();
+        }
       } catch {
         // file missing — skip silently, return empty content
       }
@@ -92,15 +92,23 @@ export async function POST(request: Request, context: RouteContext) {
   // Atomic persistence: pre-compute canonical ID and path, write the file,
   // then create the DB record in a single step with the real path.
   // This eliminates the empty-placeholder pattern that left dangling records.
-  const specId = crypto.randomUUID();
-  const projectSpecDir = join(SPEC_DIR, projectId);
-  const filePath = join(projectSpecDir, `${specId}.md`);
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return NextResponse.json(
+      { error: "Blob storage is not configured." },
+      { status: 500 },
+    );
+  }
 
-  await mkdir(projectSpecDir, { recursive: true });
-  await writeFile(filePath, body.specContent, "utf-8");
+  const specId = crypto.randomUUID();
+  const blobPathname = `specs/${projectId}/${specId}.md`;
+  const blob = await put(blobPathname, body.specContent, {
+    access: "private",
+    addRandomSuffix: false,
+    contentType: "text/markdown; charset=utf-8",
+  });
 
   const specRecord = await prisma.projectSpec.create({
-    data: { id: specId, projectId, filePath },
+    data: { id: specId, projectId, filePath: blob.url },
   });
 
   return NextResponse.json({ specId: specRecord.id, ok: true });

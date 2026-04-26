@@ -41,7 +41,7 @@ export function ProjectSidebar({
   ) => {
     if (!projects.length) {
       return (
-        <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/30 px-3 py-4 text-xs text-zinc-500">
+        <div className="rounded-xl border border-dashed border-surface-border bg-elevated/30 px-3 py-4 text-xs text-copy-faint">
           {emptyLabel}
         </div>
       );
@@ -55,15 +55,15 @@ export function ProjectSidebar({
           key={project.id}
           href={`/editor/${encodeURIComponent(project.id)}`}
           className={cn(
-            "group block rounded-xl border px-3 py-3 text-sm transition",
+            "group block rounded-xl border-2 px-3 py-3 text-sm transition-colors hover:border-brand/50!",
             isActive
-              ? "border-cyan-400/50 bg-cyan-500/10 text-zinc-50"
-              : "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-700 hover:text-zinc-100",
+              ? "border-brand/50! bg-brand-dim text-copy-primary"
+              : "border-surface-border bg-elevated/60 text-copy-secondary hover:text-copy-primary",
           )}>
           <div className="flex items-start gap-1">
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium">{project.name}</p>
-              <p className="truncate text-xs text-zinc-500">
+              <p className="truncate text-xs text-copy-muted">
                 /editor/{project.id}
               </p>
             </div>
@@ -78,7 +78,7 @@ export function ProjectSidebar({
                       onRenameProject(project.id, project.name);
                     }}
                     aria-label="Rename project"
-                    className="rounded p-1 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-100">
+                    className="rounded p-1 text-copy-muted hover:bg-subtle hover:text-copy-primary">
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -91,7 +91,7 @@ export function ProjectSidebar({
                       onDeleteProject(project.id, project.name);
                     }}
                     aria-label="Delete project"
-                    className="rounded p-1 text-zinc-400 hover:bg-red-500/20 hover:text-red-400">
+                    className="rounded p-1 text-copy-muted hover:bg-danger hover:text-danger-foreground">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -106,18 +106,18 @@ export function ProjectSidebar({
   return (
     <aside
       className={cn(
-        "absolute left-4 top-4 bottom-4 z-40 flex w-[min(20rem,calc(100vw-2rem))] flex-col rounded-2xl border border-zinc-800 bg-zinc-950/94 p-4 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-300",
+        "absolute left-4 top-4 bottom-4 z-40 flex w-[min(20rem,calc(100vw-2rem))] flex-col rounded-2xl border border-surface-border bg-base/94 p-4 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-300",
         isOpen
           ? "translate-x-0 opacity-100"
           : "pointer-events-none -translate-x-[calc(100%+1.5rem)] opacity-0",
       )}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-brand">
             <FolderKanban className="h-3.5 w-3.5" />
             Projects
           </p>
-          <p className="mt-2 text-sm text-zinc-400">
+          <p className="mt-2 text-sm text-copy-muted">
             Create a project or jump into an existing room.
           </p>
         </div>
@@ -127,7 +127,7 @@ export function ProjectSidebar({
           size="icon"
           onClick={onClose}
           aria-label="Close project sidebar"
-          className="h-9 w-9 border border-zinc-800 bg-zinc-900/70 text-zinc-300 hover:text-zinc-100">
+          className="h-9 w-9 border border-surface-border bg-elevated/70 text-copy-secondary hover:text-copy-primary">
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -147,7 +147,7 @@ export function ProjectSidebar({
         </TabsList>
 
         <TabsContent value="my" className="mt-3 flex min-h-0 flex-1 flex-col">
-          <ScrollArea className="flex-1 rounded-xl border border-zinc-800 bg-zinc-950/40 p-2">
+          <ScrollArea className="flex-1 rounded-xl bg-base/40">
             <div className="space-y-2 pr-1">
               {renderProjectList(
                 myProjects,
@@ -161,7 +161,7 @@ export function ProjectSidebar({
         <TabsContent
           value="shared"
           className="mt-3 flex min-h-0 flex-1 flex-col">
-          <ScrollArea className="flex-1 rounded-xl border border-zinc-800 bg-zinc-950/40 p-2">
+          <ScrollArea className="flex-1 rounded-xl bg-base/40">
             <div className="space-y-2 pr-1">
               {renderProjectList(
                 sharedProjects,

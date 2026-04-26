@@ -4,6 +4,7 @@ import "@liveblocks/react-flow/styles.css";
 import "@liveblocks/react-ui/styles.css";
 import "@xyflow/react/dist/style.css";
 import { Geist, Geist_Mono } from "next/font/google";
+import { clerkAppearance } from "@/lib/clerk-appearance";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,8 +18,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Ghost Arc",
-  description: "Ghost Arc — AI-powered collaborative system design",
+  title: "Ghost AI",
+  description: "Ghost AI - AI-powered collaborative system design",
 };
 
 export default function RootLayout({
@@ -31,7 +32,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        <ClerkProvider>{children}</ClerkProvider>
+        <ClerkProvider appearance={clerkAppearance}>{children}</ClerkProvider>
       </body>
     </html>
   );

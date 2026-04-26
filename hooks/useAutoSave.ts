@@ -10,6 +10,7 @@ export function useAutoSave(
   roomId: string,
   nodes: CanvasNode[],
   edges: CanvasEdge[],
+  isPaused = false,
 ) {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
@@ -45,6 +46,11 @@ export function useAutoSave(
   }, [roomId, nodes, edges]);
 
   useEffect(() => {
+    if (isPaused) {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      return;
+    }
+
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       saveCanvas();
@@ -53,7 +59,7 @@ export function useAutoSave(
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [nodes, edges, saveCanvas]);
+  }, [nodes, edges, saveCanvas, isPaused]);
 
   return { saveStatus, saveCanvas };
 }

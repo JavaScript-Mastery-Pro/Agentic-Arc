@@ -2,26 +2,98 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #080809;
+  --foreground: #f0f0f4;
+  --bg-base: #080809;
+  --bg-surface: #111114;
+  --bg-elevated: #18181c;
+  --bg-subtle: #1e1e23;
+  --bg-overlay: rgba(8, 8, 9, 0.7);
+  --border-default: #2a2a30;
+  --border-subtle: #3a3a42;
+  --text-primary: #f0f0f4;
+  --text-secondary: #c0c0cc;
+  --text-muted: #808090;
+  --text-faint: #505060;
+  --accent-primary: #00c8d4;
+  /* --accent-primary: #0d3868; */
+  --accent-primary-hover: #40dce8;
+  --accent-primary-dim: rgba(0, 200, 212, 0.12);
+  --accent-primary-ring: rgba(0, 200, 212, 0.4);
+  --accent-ai: #6457f9;
+  --accent-ai-hover: #7b6fff;
+  --accent-ai-text: #8b82ff;
+  --accent-ai-dim: rgba(100, 87, 249, 0.1);
+  --accent-ai-border: rgba(100, 87, 249, 0.2);
+  --state-error: #ff4d4f;
+  --state-error-border: rgba(255, 77, 79, 0.2);
+  --state-error-bg: rgba(255, 77, 79, 0.08);
+  --state-success: #34d399;
+  --state-success-border: rgba(52, 211, 153, 0.2);
+  --state-success-bg: rgba(52, 211, 153, 0.08);
+  --state-warning: #fbbf24;
+  --state-warning-border: rgba(251, 191, 36, 0.2);
+  --state-warning-bg: rgba(251, 191, 36, 0.08);
+  --canvas-grid: #252530;
+  --canvas-edge-active: #a0e8f0;
+  --canvas-edge-dim: rgba(160, 232, 240, 0.35);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-base: var(--bg-base);
+  --color-surface: var(--bg-surface);
+  --color-elevated: var(--bg-elevated);
+  --color-subtle: var(--bg-subtle);
+  --color-overlay: var(--bg-overlay);
+  --color-surface-hover: var(--bg-subtle);
+  --color-surface-border: var(--border-default);
+  --color-surface-border-strong: var(--border-subtle);
+  --color-copy-primary: var(--text-primary);
+  --color-copy-secondary: var(--text-secondary);
+  --color-copy-muted: var(--text-muted);
+  --color-copy-faint: var(--text-faint);
+  --color-brand: var(--accent-primary);
+  --color-brand-hover: var(--accent-primary-hover);
+  --color-brand-dim: var(--accent-primary-dim);
+  --color-brand-ring: var(--accent-primary-ring);
+  --color-brand-foreground: var(--bg-base);
+  --color-accent: var(--accent-ai);
+  --color-accent-hover: var(--accent-ai-hover);
+  --color-accent-foreground: var(--text-primary);
+  --color-accent-text: var(--accent-ai-text);
+  --color-accent-dim: var(--accent-ai-dim);
+  --color-accent-border: var(--accent-ai-border);
+  --color-danger: var(--state-error-bg);
+  --color-danger-hover: rgba(255, 77, 79, 0.12);
+  --color-danger-border: var(--state-error-border);
+  --color-danger-border-hover: rgba(255, 77, 79, 0.32);
+  --color-danger-foreground: var(--state-error);
+  --color-danger-foreground-hover: #ff8081;
+  --color-success: var(--state-success);
+  --color-success-bg: var(--state-success-bg);
+  --color-success-border: var(--state-success-border);
+  --color-warning: var(--state-warning);
+  --color-warning-bg: var(--state-warning-bg);
+  --color-warning-border: var(--state-warning-border);
+  --color-canvas-grid: var(--canvas-grid);
+  --color-canvas-edge: var(--canvas-edge-active);
+  --color-canvas-edge-dim: var(--canvas-edge-dim);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--background);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+button {
+  cursor: pointer;
 }

@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { task, metadata } from "@trigger.dev/sdk";
+import { schemaTask, metadata } from "@trigger.dev/sdk";
 import { generateText } from "ai";
 import { z } from "zod";
 
@@ -17,14 +17,14 @@ const specPayloadSchema = z.object({
   edges: z.array(z.record(z.string(), z.unknown())),
 });
 
-type SpecPayload = z.infer<typeof specPayloadSchema>;
-
 // ── Constants ───────────────────────────────────────────────────────
 // (spec content is returned as task output and saved to DB by the caller)
 
 // ── Task ────────────────────────────────────────────────────────────
-export const generateSpecGemini = task({
+export const generateSpecGemini = schemaTask({
   id: "generate-spec",
+  maxDuration: 300,
+  schema: specPayloadSchema,
   retry: {
     maxAttempts: 5,
     minTimeoutInMs: 10_000,
@@ -32,9 +32,7 @@ export const generateSpecGemini = task({
     factor: 2,
     randomize: true,
   },
-  run: async (payload: SpecPayload) => {
-    const parsed = specPayloadSchema.parse(payload);
-
+  run: async (payload) => {
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set.");
 
@@ -45,12 +43,12 @@ export const generateSpecGemini = task({
     await metadata.set("progress", 10);
 
     // ── Step 2: Build context from chat history + canvas ──────────
-    const chatContext = parsed.chatHistory
+    const chatContext = payload.chatHistory
       .map((m) => `${m.role === "user" ? "User" : "AI"}: ${m.content}`)
       .join("\n");
 
     const canvasJson = JSON.stringify(
-      { nodes: parsed.nodes, edges: parsed.edges },
+      { nodes: payload.nodes, edges: payload.edges },
       null,
       2,
     );
@@ -133,7 +131,10 @@ Generate a comprehensive technical specification for this system.`,
     //   INTERNAL_API_SECRET — a long random secret shared between both sides
     // APP_URL falls back to localhost so the task works even when the
     // Trigger.dev CLI does not forward .env.local to the worker process.
-    const appUrl = process.env.APP_URL;
+    const appUrl = (process.env.APP_URL ?? "http://localhost:3000").replace(
+      /\/$/,
+      "",
+    );
     // console.log("app url: ", appUrl);
     const internalSecret = process.env.INTERNAL_API_SECRET;
 
@@ -145,7 +146,7 @@ Generate a comprehensive technical specification for this system.`,
     await metadata.set("progress", 90);
 
     const saveRes = await fetch(
-      `${appUrl}/api/projects/${parsed.projectId}/spec`,
+      `${appUrl}/api/projects/${payload.projectId}/spec`,
       {
         method: "POST",
         headers: {
@@ -171,8 +172,8 @@ Generate a comprehensive technical specification for this system.`,
     return {
       specContent,
       specId,
-      roomId: parsed.roomId,
-      projectId: parsed.projectId,
+      roomId: payload.roomId,
+      projectId: payload.projectId,
     };
   },
 });

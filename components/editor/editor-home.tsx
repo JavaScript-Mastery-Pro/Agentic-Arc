@@ -1,8 +1,10 @@
 "use client";
 
-import { Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { useState } from "react";
 
+import { EditorNavbar } from "@/components/editor/editor-navbar";
+// import { EditorWorkspaceBackground } from "@/components/editor/editor-workspace-background";
 import {
   type EditorProject,
   ProjectSidebar,
@@ -51,7 +53,7 @@ export function EditorHome({ myProjects, sharedProjects }: EditorHomeProps) {
   } = useProjectActions({ onAfterCreate: () => setIsSidebarOpen(false) });
 
   return (
-    <div className="relative h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+    <div className="relative h-screen overflow-hidden bg-base text-copy-primary">
       {/* Create project dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
         <DialogContent>
@@ -70,7 +72,7 @@ export function EditorHome({ myProjects, sharedProjects }: EditorHomeProps) {
               placeholder="Realtime architecture map"
               autoFocus
             />
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-sm text-zinc-400">
+            <div className="rounded-xl border border-surface-border bg-base/80 px-3 py-2 text-sm text-copy-muted">
               /editor/{slugifyProjectName(projectName || "untitled-project")}-
               {roomSuffix}
             </div>
@@ -167,7 +169,7 @@ export function EditorHome({ myProjects, sharedProjects }: EditorHomeProps) {
             </Button>
             <Button
               type="button"
-              className="border border-red-800 bg-red-950/40 text-red-400 hover:border-red-700 hover:bg-red-900/40 hover:text-red-300"
+              variant="danger"
               onClick={handleConfirmDelete}
               disabled={isDeleting}>
               {isDeleting ? (
@@ -183,31 +185,20 @@ export function EditorHome({ myProjects, sharedProjects }: EditorHomeProps) {
       </Dialog>
 
       <div className="relative z-10 flex h-full min-w-0 flex-col">
-        <header className="relative flex h-14 items-center justify-between border-b border-zinc-800 bg-zinc-950/95 px-4">
-          <Button
-            type="button"
-            onClick={() => setIsSidebarOpen((current) => !current)}
-            aria-label={
-              isSidebarOpen ? "Hide project sidebar" : "Show project sidebar"
-            }
-            variant="secondary"
-            size="icon"
-            className="h-9 w-9 rounded-lg">
-            {isSidebarOpen ? (
-              <PanelLeftClose className="h-4 w-4" />
-            ) : (
-              <PanelLeftOpen className="h-4 w-4" />
-            )}
-          </Button>
-
-          <p className="absolute left-1/2 -translate-x-1/2 text-sm font-medium text-zinc-100">
-            Editor Home
-          </p>
-
-          <div className="w-9" />
-        </header>
+        <EditorNavbar
+          title="Editor Home"
+          isSidebarOpen={isSidebarOpen}
+          onToggleSidebar={() => setIsSidebarOpen((current) => !current)}
+        />
 
         <main className="relative min-h-0 flex-1 overflow-hidden">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0">
+            <div className="absolute inset-0 bg-base" />
+            <div className="absolute inset-0 bg-[linear-gradient(var(--canvas-grid)_1px,transparent_1px),linear-gradient(90deg,var(--canvas-grid)_1px,transparent_1px)] bg-size-[20px_20px] opacity-70" />
+          </div>
+
           <ProjectSidebar
             isOpen={isSidebarOpen}
             onClose={() => setIsSidebarOpen(false)}
@@ -223,24 +214,28 @@ export function EditorHome({ myProjects, sharedProjects }: EditorHomeProps) {
               type="button"
               aria-label="Close project sidebar backdrop"
               onClick={() => setIsSidebarOpen(false)}
-              className="absolute inset-0 z-30 bg-zinc-950/35"
+              className="absolute inset-0 z-30 bg-base/35 lg:hidden"
             />
           ) : null}
 
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(39,39,42,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.5)_1px,transparent_1px)] bg-[size:36px_36px]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.08),_transparent_42%),radial-gradient(circle_at_bottom,_rgba(99,102,241,0.08),_transparent_42%)]" />
-
-          {/* <div className="relative z-10 flex h-full items-center justify-center px-6">
-            <div className="max-w-xl rounded-3xl border border-zinc-800 bg-zinc-900/70 p-10 text-center shadow-2xl shadow-black/40 backdrop-blur">
-              <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">
-                Welcome to your architecture workspace
+          <div className="relative z-10 flex h-full items-center justify-center px-6">
+            <div className="flex max-w-md flex-col items-center text-center">
+              <h1 className="text-2xl font-semibold tracking-tight text-copy-primary">
+                Create a project or open an existing one
               </h1>
-              <p className="mt-3 text-sm leading-6 text-zinc-400">
-                Select a project from the sidebar or create a new one to get
-                started.
+              <p className="mt-3 text-sm leading-6 text-copy-muted">
+                Start a new architecture workspace, or choose a project from the
+                sidebar.
               </p>
+              <Button
+                type="button"
+                className="mt-6"
+                onClick={() => setIsCreateDialogOpen(true)}>
+                <Plus className="h-4 w-4" />
+                New project
+              </Button>
             </div>
-          </div> */}
+          </div>
         </main>
       </div>
     </div>

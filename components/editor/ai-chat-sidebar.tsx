@@ -1,7 +1,7 @@
 "use client";
-
 import { useRealtimeRun } from "@trigger.dev/react-hooks";
 import { useFeedMessages, useCreateFeedMessage } from "@liveblocks/react";
+
 import {
   Bot,
   Download,
@@ -12,8 +12,9 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DesignCancelButton, SpecCancelButton } from "./AiCancelButtons";
+import { SpecPreviewDialog, type StoredSpec } from "./SpecPreviewDialog";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,12 +24,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,19 +42,15 @@ import {
   triggerResponseSchema,
 } from "@/types/tasks";
 
-interface StoredSpec {
-  id: string;
-  title: string;
-  content: string;
-  createdAt: string;
-}
+const COMPOSER_MIN_HEIGHT = 72;
+const COMPOSER_MAX_HEIGHT = 160;
 
 interface AiChatSidebarProps {
   roomId: string;
   isOpen: boolean;
   onClose: () => void;
-  nodes: CanvasNode[];
-  edges: CanvasEdge[];
+  nodeCount: number;
+  getCanvasSnapshot: () => { nodes: CanvasNode[]; edges: CanvasEdge[] };
 }
 
 function formatGeneratedTime(isoTime: string) {
@@ -111,7 +102,7 @@ function DesignRunTracker({
 
   if (error) {
     return (
-      <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+      <div className="rounded-xl border border-danger-border bg-danger px-3 py-2 text-xs text-danger-foreground">
         Failed to track AI progress.
       </div>
     );
@@ -159,7 +150,7 @@ function SpecRunTracker({
 
   if (error) {
     return (
-      <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+      <div className="rounded-xl border border-danger-border bg-danger px-3 py-2 text-xs text-danger-foreground">
         Failed to track spec generation.
       </div>
     );
@@ -170,16 +161,16 @@ function SpecRunTracker({
   const status = metadata.success ? metadata.data.status : undefined;
 
   return (
-    <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5">
+    <div className="space-y-2 rounded-xl border border-surface-border bg-elevated px-3 py-2.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-zinc-300">{status ?? "Connecting..."}</span>
-        <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
+        <span className="text-copy-secondary">{status ?? "Connecting..."}</span>
+        <Loader2 className="h-3 w-3 animate-spin text-accent-text" />
       </div>
 
       {typeof progress === "number" && (
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-subtle">
           <div
-            className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+            className="h-full rounded-full bg-accent transition-all duration-500"
             style={{ width: `${Math.min(progress, 100)}%` }}
           />
         </div>
@@ -203,24 +194,24 @@ function AiStatusFeed() {
   const d = parsedFeed.success ? parsedFeed.data : {};
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
+    <div className="flex items-center gap-2 rounded-lg border border-accent-border bg-[#0F2E18] px-3 py-2">
       <span className="relative flex h-2 w-2 shrink-0">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-60" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-text opacity-60" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-[#62C073]" />
       </span>
-      <p className="truncate font-mono text-xs text-indigo-300">
+      <p className="truncate font-mono text-xs text-[#62C073]">
         {d?.text ?? ""}
       </p>
     </div>
   );
 }
 
-export function AiChatSidebar({
+export const AiChatSidebar = memo(function AiChatSidebar({
   roomId,
   isOpen,
   onClose,
-  nodes,
-  edges,
+  nodeCount,
+  getCanvasSnapshot,
 }: AiChatSidebarProps) {
   // Liveblocks collaborative chat feed — persisted & realtime for all room users
   const { messages: feedMessages, isLoading: feedLoading } =
@@ -236,10 +227,12 @@ export function AiChatSidebar({
   const [designAccessToken, setDesignAccessToken] = useState<string | null>(
     null,
   );
+  const [isCancellingDesign, setIsCancellingDesign] = useState(false);
 
   const [specRunId, setSpecRunId] = useState<string | null>(null);
   const [specAccessToken, setSpecAccessToken] = useState<string | null>(null);
   const [isGeneratingSpec, setIsGeneratingSpec] = useState(false);
+  const [isCancellingSpec, setIsCancellingSpec] = useState(false);
   const [specs, setSpecs] = useState<StoredSpec[]>([]);
   const [activeSpecId, setActiveSpecId] = useState<string | null>(null);
   const [isSpecDialogOpen, setIsSpecDialogOpen] = useState(false);
@@ -283,8 +276,17 @@ export function AiChatSidebar({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+
+    if (!input) {
+      el.style.height = "";
+      return;
+    }
+
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    el.style.height = `${Math.min(
+      Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT),
+      COMPOSER_MAX_HEIGHT,
+    )}px`;
   }, [input]);
 
   function scrollToBottom() {
@@ -320,6 +322,47 @@ export function AiChatSidebar({
     [createFeedMessage],
   );
 
+  const handleCancelDesign = useCallback(async () => {
+    if (!designRunId) return;
+    setIsCancellingDesign(true);
+    try {
+      await fetch("/api/ai/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: designRunId }),
+      });
+    } catch {
+      // best-effort
+    }
+    setDesignRunId(null);
+    setDesignAccessToken(null);
+    setIsLoading(false);
+    setIsCancellingDesign(false);
+    void createFeedMessage("ai-chat", {
+      role: "assistant",
+      content: "Design generation was cancelled.",
+    });
+    scrollToBottom();
+  }, [designRunId, createFeedMessage]);
+
+  const handleCancelSpec = useCallback(async () => {
+    if (!specRunId) return;
+    setIsCancellingSpec(true);
+    try {
+      await fetch("/api/ai/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: specRunId }),
+      });
+    } catch {
+      // best-effort
+    }
+    setSpecRunId(null);
+    setSpecAccessToken(null);
+    setIsGeneratingSpec(false);
+    setIsCancellingSpec(false);
+  }, [specRunId]);
+
   const handleSpecComplete = useCallback(
     async (result: { specContent: string; specId: string } | null) => {
       setSpecRunId(null);
@@ -349,6 +392,7 @@ export function AiChatSidebar({
   async function handleGenerateSpec() {
     if (isGeneratingSpec) return;
     setIsGeneratingSpec(true);
+    const { nodes, edges } = getCanvasSnapshot();
 
     const chatHistory = (feedMessages ?? []).map((m) => {
       const parsed = chatFeedMessageDataSchema.safeParse(m.data);
@@ -431,7 +475,7 @@ export function AiChatSidebar({
 
     // Reset textarea height
     if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${COMPOSER_MIN_HEIGHT}px`;
     }
 
     try {
@@ -470,6 +514,7 @@ export function AiChatSidebar({
         throw new Error("Failed to get design token.");
       }
       const { publicToken } = tokenDesignParsed.data;
+      setDesignRunId(runId);
       setDesignAccessToken(publicToken);
       scrollToBottom();
     } catch {
@@ -494,21 +539,21 @@ export function AiChatSidebar({
     <>
       <aside
         className={cn(
-          "absolute right-4 top-4 bottom-4 z-40 flex w-[min(24rem,calc(100vw-2rem))] flex-col rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-300",
+          "absolute right-4 top-4 bottom-4 z-40 flex w-[min(24rem,calc(100vw-2rem))] flex-col rounded-2xl border border-surface-border bg-base/95 shadow-2xl shadow-black/40 backdrop-blur transition-all duration-300",
           isOpen
             ? "translate-x-0 opacity-100"
             : "pointer-events-none translate-x-[calc(100%+1.5rem)] opacity-0",
         )}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+        <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/15">
-              <Sparkles className="h-4 w-4 text-indigo-400" />
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-dim">
+              <Sparkles className="h-4 w-4 text-accent-text" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-zinc-100">
+              <p className="text-sm font-semibold text-copy-primary">
                 AI Workspace
               </p>
-              <p className="text-[11px] text-zinc-500">
+              <p className="text-[11px] text-copy-faint">
                 Architect and spec drafts
               </p>
             </div>
@@ -519,7 +564,7 @@ export function AiChatSidebar({
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="h-8 w-8 text-zinc-400 hover:text-zinc-100">
+            className="h-8 w-8 text-copy-muted hover:text-copy-primary">
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -538,17 +583,17 @@ export function AiChatSidebar({
             {/* Chat messages — clean conversation view only */}
             <div
               ref={scrollRef}
-              className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-3">
+              className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-surface-border bg-base/50 px-3 py-3">
               {!feedLoading && (!feedMessages || feedMessages.length === 0) ? (
                 <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900">
-                    <Bot className="h-6 w-6 text-zinc-500" />
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-surface-border bg-elevated">
+                    <Bot className="h-6 w-6 text-copy-faint" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-zinc-300">
+                    <p className="text-sm font-medium text-copy-secondary">
                       AI System Designer
                     </p>
-                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                    <p className="mt-1 text-xs leading-5 text-copy-faint">
                       Describe whatever system you want to design. The AI will
                       place nodes and connections on the canvas in real time.
                     </p>
@@ -560,7 +605,7 @@ export function AiChatSidebar({
                           key={label}
                           type="button"
                           onClick={() => setInput(fullPrompt)}
-                          className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200">
+                          className="rounded-lg border border-surface-border bg-elevated/60 px-2.5 py-1.5 text-xs text-copy-muted transition hover:border-surface-border-strong hover:text-copy-primary">
                           {label}
                         </button>
                       ),
@@ -587,8 +632,8 @@ export function AiChatSidebar({
                         className={cn(
                           "max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed",
                           isUser
-                            ? "bg-indigo-600 text-white"
-                            : "border border-zinc-800 bg-zinc-900 text-zinc-200",
+                            ? "bg-brand-dim border-brand/50! border-2 text-copy-primary"
+                            : "border border-surface-border bg-elevated text-copy-primary",
                         )}>
                         {d.content ?? ""}
                       </div>
@@ -617,26 +662,26 @@ export function AiChatSidebar({
               />
             )}
 
-            <div className="space-y-2 border-t border-zinc-800 px-1 pt-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleGenerateSpec}
-                disabled={isGeneratingSpec || nodes.length === 0}
-                className="w-full rounded-lg text-xs">
+            <div className="space-y-2 border-t border-surface-border px-1 pt-3">
+              <div className="flex items-center gap-2">
                 {isGeneratingSpec ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Generating spec...
-                  </>
+                  <SpecCancelButton
+                    isCancelling={isCancellingSpec}
+                    onCancel={handleCancelSpec}
+                  />
                 ) : (
-                  <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGenerateSpec}
+                    disabled={nodeCount === 0}
+                    className="flex-1 rounded-lg text-xs">
                     <FileText className="h-3 w-3" />
                     Generate Spec Draft
-                  </>
+                  </Button>
                 )}
-              </Button>
+              </div>
 
               <div className="flex items-end gap-2">
                 <Textarea
@@ -647,28 +692,32 @@ export function AiChatSidebar({
                   placeholder="Describe your system (Enter to send, Shift+Enter for new line)"
                   disabled={isLoading}
                   rows={1}
-                  className="min-h-[36px] flex-1 resize-none rounded-lg py-2 text-sm leading-relaxed"
+                  className="min-h-18 flex-1 resize-none rounded-lg py-2 text-sm leading-relaxed"
                 />
-                <Button
-                  type="button"
-                  size="icon"
-                  onClick={() => void handleSubmit()}
-                  disabled={!input.trim() || isLoading}
-                  className="h-9 w-9 shrink-0 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40">
-                  {isLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
+                {isLoading ? (
+                  <DesignCancelButton
+                    isCancelling={isCancellingDesign}
+                    onCancel={handleCancelDesign}
+                  />
+                ) : (
+                  <Button
+                    type="button"
+                    variant="accent"
+                    size="icon"
+                    onClick={() => void handleSubmit()}
+                    disabled={!input.trim()}
+                    className="h-9 w-9 shrink-0 rounded-lg bg-linear-to-r from-blue-600 to-fuchsia-500 text-copy-primary hover:from-fuchsia-500 hover:to-blue-600">
                     <Send className="h-4 w-4" />
-                  )}
-                </Button>
+                  </Button>
+                )}
               </div>
             </div>
           </TabsContent>
 
           <TabsContent value="specs" className="mt-3 min-h-0 flex-1">
-            <ScrollArea className="h-full rounded-xl border border-zinc-800 bg-zinc-950/50 p-3">
+            <ScrollArea className="h-full rounded-xl bg-base/50">
               {specs.length === 0 ? (
-                <div className="flex h-full min-h-[180px] items-center justify-center rounded-xl border border-dashed border-zinc-800 bg-zinc-900/30 px-4 text-center text-sm text-zinc-500">
+                <div className="flex h-full min-h-45 items-center justify-center rounded-xl border border-dashed border-surface-border bg-elevated/30 px-4 text-center text-sm text-copy-faint">
                   No specs yet. Generate your first draft from the AI Architect
                   tab.
                 </div>
@@ -680,14 +729,14 @@ export function AiChatSidebar({
                     return (
                       <Card
                         key={spec.id}
-                        className="border-zinc-800 bg-zinc-900/70">
+                        className="border-surface-border bg-elevated/60">
                         <CardHeader className="pb-3">
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1">
-                              <CardTitle className="text-zinc-100">
+                              <CardTitle className="text-copy-primary">
                                 {spec.title}
                               </CardTitle>
-                              <CardDescription className="text-xs text-zinc-500">
+                              <CardDescription className="text-xs text-copy-faint">
                                 Generated at{" "}
                                 {formatGeneratedTime(spec.createdAt)}
                               </CardDescription>
@@ -699,7 +748,7 @@ export function AiChatSidebar({
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleOpenSpec(spec)}
-                                className="h-8 w-8 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                                className="h-8 w-8 rounded-lg text-copy-muted hover:bg-elevated hover:text-copy-primary"
                                 aria-label="View spec">
                                 <Eye className="h-4 w-4" />
                               </Button>
@@ -708,7 +757,7 @@ export function AiChatSidebar({
                                 <a
                                   href={getDownloadUrl(roomId, spec.id)}
                                   download
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-copy-muted transition hover:bg-elevated hover:text-copy-primary"
                                   aria-label="Download spec markdown">
                                   <Download className="h-4 w-4" />
                                 </a>
@@ -718,7 +767,7 @@ export function AiChatSidebar({
                                   variant="ghost"
                                   size="icon"
                                   disabled
-                                  className="h-8 w-8 rounded-lg text-zinc-600"
+                                  className="h-8 w-8 rounded-lg text-copy-faint"
                                   aria-label="Download unavailable until saved">
                                   <Download className="h-4 w-4" />
                                 </Button>
@@ -728,7 +777,7 @@ export function AiChatSidebar({
                         </CardHeader>
 
                         <CardContent>
-                          <p className="text-sm text-zinc-400">
+                          <p className="text-sm text-copy-muted">
                             {getSnippet(spec.content)}
                           </p>
                         </CardContent>
@@ -742,40 +791,12 @@ export function AiChatSidebar({
         </Tabs>
       </aside>
 
-      <Dialog open={isSpecDialogOpen} onOpenChange={setIsSpecDialogOpen}>
-        <DialogContent className="w-[min(94vw,80rem)] max-w-5xl gap-0 overflow-hidden border-zinc-800 bg-zinc-900 p-0">
-          <DialogHeader className="flex-row items-center justify-between border-b border-zinc-800 px-6 py-4 pr-16">
-            <DialogTitle className="text-lg text-zinc-100">
-              {activeSpec?.title ?? "Spec"}
-            </DialogTitle>
-
-            {activeSpec && !activeSpec.id.startsWith("local-") && (
-              <a href={getDownloadUrl(roomId, activeSpec.id)} download>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="rounded-lg">
-                  <Download className="h-4 w-4" />
-                  Download .md
-                </Button>
-              </a>
-            )}
-          </DialogHeader>
-
-          <ScrollArea className="h-[70vh] px-6 py-5">
-            {activeSpec ? (
-              <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
-                <ReactMarkdown>{activeSpec.content}</ReactMarkdown>
-              </div>
-            ) : (
-              <p className="py-8 text-center text-sm text-zinc-500">
-                No spec selected.
-              </p>
-            )}
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
+      <SpecPreviewDialog
+        isOpen={isSpecDialogOpen}
+        onOpenChange={setIsSpecDialogOpen}
+        spec={activeSpec}
+        roomId={roomId}
+      />
     </>
   );
-}
+});

@@ -34,7 +34,7 @@ export function useProjectActions(options?: UseProjectActionsOptions) {
   // ── Create ───────────────────────────────────────────────────────
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
-  const [roomSuffix, setRoomSuffix] = useState(() => nanoid(6));
+  const [roomSuffix, setRoomSuffix] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
@@ -46,7 +46,8 @@ export function useProjectActions(options?: UseProjectActionsOptions) {
 
   async function handleCreateProject() {
     const slug = slugifyProjectName(projectName);
-    const newRoomId = `${slug}-${roomSuffix}`;
+    const suffix = roomSuffix || nanoid(6);
+    const newRoomId = `${slug}-${suffix}`;
     const name = projectName.trim();
 
     if (!name) return;

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { get } from "@vercel/blob";
 import { NextResponse } from "next/server";
 
 import { canAccessProject, getAuthIdentity } from "@/lib/project-access";
@@ -38,7 +38,16 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   try {
-    const content = await readFile(spec.filePath, "utf-8");
+    const blob = await get(spec.filePath, { access: "private" });
+
+    if (!blob || blob.statusCode !== 200) {
+      return NextResponse.json(
+        { error: "Spec file missing. Please regenerate." },
+        { status: 404 },
+      );
+    }
+
+    const content = await new Response(blob.stream).text();
     return NextResponse.json({ spec: content, specId: spec.id });
   } catch {
     return NextResponse.json(
